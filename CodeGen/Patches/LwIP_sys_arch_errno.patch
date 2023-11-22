@@ -1,0 +1,13 @@
+diff --git a/Middlewares/Third_Party/LwIP/system/OS/sys_arch.c b/Middlewares/Third_Party/LwIP/system/OS/sys_arch.c
+index 65d9bf9..7d64b0c 100644
+--- a/Middlewares/Third_Party/LwIP/system/OS/sys_arch.c
++++ b/Middlewares/Third_Party/LwIP/system/OS/sys_arch.c
+@@ -42,7 +42,7 @@
+ #include "cmsis_os.h"
+
+ #if defined(LWIP_PROVIDE_ERRNO)
+-int errno;
++extern int errno;
+ #endif
+
+ /*-----------------------------------------------------------------------------------*/

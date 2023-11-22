@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "Nucleo",
+            "includePath": [
+                "Core/**",
+                "Drivers/**",
+                "FATFS/**",
+                "LWIP/**",
+                "Middlewares/**",
+                "/Applications/ARM/arm-none-eabi/include"
+            ],
+            "defines": [
+                "USE_HAL_DRIVER",
+                "STM32H723xx",
+                "LWIP_DEBUG"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 4
+}

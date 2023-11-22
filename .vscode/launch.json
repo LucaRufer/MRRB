@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+      {
+        "name": "Nucleo Debug",
+        "cwd": "${workspaceFolder}",
+        "executable": "StreamFork.elf",
+        "request": "launch",
+        "type": "cortex-debug",
+        "runToEntryPoint": "main",
+        "servertype": "stlink",
+        "preLaunchTask": "Download Nucleo Debug",
+        "overrideLaunchCommands": [
+          "-enable-pretty-printing"
+        ],
+        "svdPath": "${workspaceFolder}/docs/Debugging/STM32H723.svd"
+      }
+  ]
+}

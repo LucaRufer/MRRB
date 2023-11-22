@@ -1,0 +1,21 @@
+# Build files
+Debug
+build
+*.d
+*.o
+*.su
+*.map
+*.list
+*.elf
+*.bin
+*.log
+
+# IDEs
+.settings
+.vscode/settings.json
+.project
+.mxproject
+.osx.project
+
+# Other
+**/.DS_Store

@@ -1,0 +1,27 @@
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Nucleo Debug",
+      "type": "shell",
+      "command": "make compile",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Download Nucleo Debug",
+      "type": "shell",
+      "command": [
+        "STM32_Programmer_CLI",
+        "-c port=SWD",
+        "-w StreamFork.bin 0x08000000;"
+      ],
+      "dependsOn": "Build Nucleo Debug"
+    }
+  ]
+}

@@ -53,7 +53,7 @@ const unsigned char *const header =
 "\n\n\n"
 "                    =============================\n"
 "                    |                           |\n"
-"                    |  StreamFork Example       |\n"
+"                    |  MRRB Example             |\n"
 "                    |  -----------------------  |\n"
 "                    |  Platform: NUCLEO-H723ZG  |\n"
 "                    |  Author:   Luca Rufer     |\n"

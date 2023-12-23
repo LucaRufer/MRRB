@@ -1,19 +1,32 @@
 {
   "version": "0.2.0",
   "configurations": [
-      {
-        "name": "Nucleo Debug",
-        "cwd": "${workspaceFolder}",
-        "executable": "StreamFork.elf",
-        "request": "launch",
-        "type": "cortex-debug",
-        "runToEntryPoint": "main",
-        "servertype": "stlink",
-        "preLaunchTask": "Download Nucleo Debug",
-        "overrideLaunchCommands": [
-          "-enable-pretty-printing"
-        ],
-        "svdPath": "${workspaceFolder}/docs/Debugging/STM32H723.svd"
-      }
+    {
+      "name": "Nucleo Debug",
+      "cwd": "${workspaceFolder}",
+      "executable": "MRRB.elf",
+      "request": "launch",
+      "type": "cortex-debug",
+      "runToEntryPoint": "main",
+      "servertype": "stlink",
+      "preLaunchTask": "Download Nucleo Debug",
+      "overrideLaunchCommands": [
+        "-enable-pretty-printing"
+      ],
+      "svdPath": "${workspaceFolder}/docs/Debugging/STM32H723.svd"
+    },
+    {
+      "name": "Unity Test Debug",
+      "type": "cppdbg",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/Middlewares/Third_Party/MRRB/test",
+      "program": "${workspaceFolder}/Middlewares/Third_Party/MRRB/test/Test",
+      "args": [],
+      "stopAtEntry": false,
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "preLaunchTask": "Build Unity Test",
+    }
   ]
 }

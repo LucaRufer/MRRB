@@ -19,9 +19,19 @@
       "command": [
         "STM32_Programmer_CLI",
         "-c port=SWD",
-        "-w StreamFork.bin 0x08000000;"
+        "-w MRRB.bin 0x08000000;"
       ],
       "dependsOn": "Build Nucleo Debug"
-    }
+    },
+    {
+      "label": "Build Unity Test",
+      "type": "shell",
+      "command": "cd Middlewares/Third_Party/MRRB/test; make compile",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
   ]
 }

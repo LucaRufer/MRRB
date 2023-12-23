@@ -17,6 +17,39 @@
             ],
             "cStandard": "c17",
             "cppStandard": "c++17"
+        },
+        {
+            "name": "Unix",
+            "includePath": [
+                "Middlewares/Third_Party/MRRB",
+                "Middlewares/Third_Party/MRRB/test",
+                "Middlewares/Third_Party/MRRB/portable/UNIX",
+                "Middlewares/Third_Party/Unity/**"
+            ],
+            "defines": [
+                "MRRB_ALLOW_WRITE_FROM_ISR=0",
+                "MRRB_USE_OS=1",
+                "MRRB_SYSTEM=MRRB_SYSTEM_UNIX"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++17"
+        },
+        {
+            "name": "Test",
+            "includePath": [
+                "Middlewares/Third_Party/MRRB",
+                "Middlewares/Third_Party/MRRB/test",
+                "Middlewares/Third_Party/Unity/**"
+            ],
+            "defines": [
+                "TEST",
+                "MRRB_ALLOW_WRITE_FROM_ISR=0",
+                "MRRB_USE_OS=1",
+                "MRRB_SYSTEM=MRRB_SYSTEM_UNIX",
+                "UNITY_INCLUDE_CONFIG_H"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++17"
         }
     ],
     "version": 4

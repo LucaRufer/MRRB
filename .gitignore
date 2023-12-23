@@ -4,6 +4,9 @@ build
 *.d
 *.o
 *.su
+*.gcda
+*.gcno
+*.gcov
 *.map
 *.list
 *.elf

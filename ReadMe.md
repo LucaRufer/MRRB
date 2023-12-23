@@ -1,6 +1,6 @@
-# StreamFork
+# Multi Reader Ring Buffer
 
-StreamFork is a C library that provides a simple and light-weight interface to fork incoming data from a single or multiple sources to multiple sinks. For example, it allows re-targeting of 'printf' on an embedded to multiple sinks like ITM trace, a UART VCP, a log file or an ethernet socket.
+MRRB is a C library that provides a simple and light-weight interface to fork incoming data from a single or multiple sources to multiple readers. For example, it allows re-targeting of 'printf' on an embedded to multiple sinks like ITM trace, a UART VCP, a log file or an ethernet socket at the same time with low overhead.
 
 ## Installation
 
@@ -22,7 +22,7 @@ Loading and debugging the project in VSCode may require some additional steps:
 
 ```bash
 cd /usr/local/bin
-ln -s /Applications/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin/STM32_Programmer_CLI STM32_Programmer_CLI
+ln -s <Path to CLI> STM32_Programmer_CLI
 ```
 
 When the ioc file is used to generate code with `STM32CubeMX`, some erroneous code is generated. In order to fix the errors in the LWIP drivers, use the `CodeGen/fix.sh` script to apply patches. The script is run automatically when building with `make`.
@@ -34,5 +34,5 @@ When the ioc file is used to generate code with `STM32CubeMX`, some erroneous co
 
 ## License
 
-The `StreamFork` library located in `Middlewares/Third_Party/StreamFork` may be used under the MIT license.
+The `Multi Reader Ring Buffer` library located in `Middlewares/Third_Party/MRRB` may be used under the MIT license.
 For all other files, the Licenses shown in the respective folder or file header applies.

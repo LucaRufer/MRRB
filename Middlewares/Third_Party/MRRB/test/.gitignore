@@ -1,0 +1,10 @@
+# Test binary
+Test
+
+# Build and coverage folders
+build/
+coverage/
+
+# Libraries and Build tests
+lib/build/
+lib/*.a

@@ -1,0 +1,37 @@
+# Change working directory to script directory
+cd $(dirname $0)
+
+TARGET_LIST=("libUNIX")
+DEFS_LIST=("MRRB_ALLOW_WRITE_FROM_ISR=0 MRRB_USE_OS=1 MRRB_SYSTEM=MRRB_SYSTEM_UNIX")
+TC_LIST=(gcc)
+ARCHFLAGS_LIST=("")
+
+TARGET_LIST+=("libCMSIS")
+DEFS_LIST+=("MRRB_ALLOW_WRITE_FROM_ISR=0 MRRB_USE_OS=0 MRRB_SYSTEM=MRRB_SYSTEM_CMSIS")
+TC_LIST+=(arm-none-eabi-gcc)
+ARCHFLAGS_LIST+=("-mcpu=cortex-m0")
+
+TARGET_LIST+=("libCMSIS_OS")
+DEFS_LIST+=("MRRB_ALLOW_WRITE_FROM_ISR=0 MRRB_USE_OS=1 MRRB_SYSTEM=MRRB_SYSTEM_CMSIS")
+TC_LIST+=(arm-none-eabi-gcc)
+ARCHFLAGS_LIST+=("-mcpu=cortex-m0")
+
+TARGET_LIST+=("libCMSIS_ISR")
+DEFS_LIST+=("MRRB_ALLOW_WRITE_FROM_ISR=1 MRRB_USE_OS=0 MRRB_SYSTEM=MRRB_SYSTEM_CMSIS")
+TC_LIST+=(arm-none-eabi-gcc)
+ARCHFLAGS_LIST+=("-mcpu=cortex-m0")
+
+TARGET_LIST+=("libCMSIS_OS_ISR")
+DEFS_LIST+=("MRRB_ALLOW_WRITE_FROM_ISR=1 MRRB_USE_OS=1 MRRB_SYSTEM=MRRB_SYSTEM_CMSIS")
+TC_LIST+=(arm-none-eabi-gcc)
+ARCHFLAGS_LIST+=("-mcpu=cortex-m0")
+
+# Build all targets
+for idx in "${!TARGET_LIST[@]}"; do
+  TARGET=${TARGET_LIST[$idx]}
+  DEFS=${DEFS_LIST[$idx]}
+  TC=${TC_LIST[$idx]}
+  ARCHFLAGS=${ARCHFLAGS_LIST[$idx]}
+  echo " === Building Configuration ${TARGET} === "
+  TARGET=$TARGET AS=$TC CC=$TC CXX=$TC LD=$TC ARCHFLAGS=$ARCHFLAGS DEFS=$DEFS make clean lib
+done

@@ -46,7 +46,17 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-
+const unsigned char *const header =
+"\n\n\n"
+"                    =============================\n"
+"                    |                           |\n"
+"                    |  MRRB Retarget Example    |\n"
+"                    |  -----------------------  |\n"
+"                    |  Platform: NUCLEO-H723ZG  |\n"
+"                    |  Author:   Luca Rufer     |\n"
+"                    |                           |\n"
+"                    =============================\n"
+"\n\n\n";
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -129,6 +139,9 @@ void StartDefaultTask(void *argument)
   /* init code for LWIP */
   MX_LWIP_Init();
   /* USER CODE BEGIN StartDefaultTask */
+  
+  // Print the header
+  printf(header);
 
   int button_was_pressed = 0;
 

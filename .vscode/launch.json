@@ -4,7 +4,7 @@
     {
       "name": "Nucleo Debug",
       "cwd": "${workspaceFolder}",
-      "executable": "MRRB.elf",
+      "executable": "MRRB_Example.elf",
       "request": "launch",
       "type": "cortex-debug",
       "runToEntryPoint": "main",

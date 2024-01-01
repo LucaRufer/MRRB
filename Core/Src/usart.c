@@ -106,6 +106,9 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
+    /* USART3 interrupt Init */
+    HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART3_IRQn);
   /* USER CODE BEGIN USART3_MspInit 1 */
 
   /* USER CODE END USART3_MspInit 1 */
@@ -129,6 +132,8 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
     */
     HAL_GPIO_DeInit(GPIOD, STLK_VCP_RX_Pin|STLK_VCP_TX_Pin);
 
+    /* USART3 interrupt Deinit */
+    HAL_NVIC_DisableIRQ(USART3_IRQn);
   /* USER CODE BEGIN USART3_MspDeInit 1 */
 
   /* USER CODE END USART3_MspDeInit 1 */
@@ -136,19 +141,5 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 }
 
 /* USER CODE BEGIN 1 */
- #ifdef __GNUC__
- int __io_putchar (int ch)
- #else
- int fputc (int ch, FILE *f)
- #endif /* __GNUC__ */
-{
-  HAL_UART_Transmit (&huart3, (char *) &ch, 1, HAL_MAX_DELAY);
-  return ch;
-}
 
-int _write(int file, char *ptr, int len)
-{
-	HAL_UART_Transmit (&huart3, ptr, len, HAL_MAX_DELAY);
-  return len;
-}
 /* USER CODE END 1 */

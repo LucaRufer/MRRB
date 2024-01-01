@@ -19,7 +19,7 @@
       "command": [
         "STM32_Programmer_CLI",
         "-c port=SWD",
-        "-w MRRB.bin 0x08000000;"
+        "-w MRRB_Example.bin 0x08000000;"
       ],
       "dependsOn": "Build Nucleo Debug"
     },

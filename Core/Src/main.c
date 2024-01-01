@@ -26,7 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "mrrb_retarget.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,17 +49,6 @@
 // Copy of LWIP heap. Included so it is linked correctly and prevent memory leakage
 uint8_t __attribute__((section(".LWIP_heap"))) LWIP_heap[MEM_SIZE];
 
-const unsigned char *const header =
-"\n\n\n"
-"                    =============================\n"
-"                    |                           |\n"
-"                    |  MRRB Example             |\n"
-"                    |  -----------------------  |\n"
-"                    |  Platform: NUCLEO-H723ZG  |\n"
-"                    |  Author:   Luca Rufer     |\n"
-"                    |                           |\n"
-"                    =============================\n"
-"\n\n\n";
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -108,7 +97,7 @@ int main(void)
   MX_USART3_UART_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-  printf("%s", header);
+  mrrb_retarget_init();
   /* USER CODE END 2 */
 
   /* Init scheduler */

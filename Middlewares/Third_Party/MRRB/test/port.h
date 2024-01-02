@@ -57,6 +57,7 @@ static inline int port_lock_deinit(pthread_mutex_t *mutex) {
     _port_fail_next_lock_deinit = 0;
     return -1;
   } else {
+    (void) pthread_mutex_trylock(mutex);
     (void) pthread_mutex_unlock(mutex);
     return (pthread_mutex_destroy(mutex) == 0) ? 0 : -1;
   }

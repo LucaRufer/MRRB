@@ -11,7 +11,7 @@ dump_log() {
 
 # Exit upon error
 trap 'dump_log' EXIT
-set -e
+set -euo pipefail
 
 # Make sure to start executing from the script's directory
 cd $(dirname $0)
@@ -48,18 +48,18 @@ num_failed=0
 for patch in $patches
 do
   # Check if the patch is already and if it can be applied
-  if git apply --reverse --check $SCRIPT_LOCATION/$patch 2>> /dev/null ; then
+  if git apply --reverse --check $SCRIPT_LOCATION/$patch 2> /dev/null ; then
     # Patch was already applied
     echo "Patch $patch is already applied. Skipping..." >> $SETUP_LOG
-    ((num_skipped++))
-  elif git apply $SCRIPT_LOCATION/$patch 2>> /dev/null ; then
+    ((num_skipped+=1))
+  elif git apply $SCRIPT_LOCATION/$patch 2> /dev/null ; then
     # Patch could be applied
     echo "Applied Patch $patch" >> $SETUP_LOG
-    ((num_applied++))
+    ((num_applied+=1))
   else
     # Patch cannot be applied due to conflict
     echo "Cannot Apply Patch $patch" >> $SETUP_LOG
-    ((num_failed++))
+    ((num_failed+=1))
   fi
 done
 

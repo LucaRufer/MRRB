@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: carlosperate/arm-none-eabi-gcc-action@v1
+      - name: Check toolchain
+        run: arm-none-eabi-gcc --version
+      - name: Build Example
+        run: make all
+      - name: Build all variants
+        run: |
+          cd Middlewares/Third_Party/MRRB/test/lib
+          ./build.sh
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run tests with coverage
+        run: |
+          cd Middlewares/Third_Party/MRRB/test
+          make coverage

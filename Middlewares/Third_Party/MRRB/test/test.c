@@ -15,6 +15,7 @@ extern "C" {
 
 // Std libraries
 #include <errno.h>
+#include <sched.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -255,7 +256,7 @@ void setUp() {
   TEST_ASSERT_EQUAL_INT(0, pthread_mutex_init(&timeout_mutex, NULL));
   TEST_ASSERT_EQUAL_INT(0, pthread_cond_init(&timeout_cond, NULL));
   TEST_ASSERT_EQUAL_INT(0, pthread_create(&timeout_thread, NULL, timeout_thread_function, &timeout));
-  while(!timeout_ready) pthread_yield_np();
+  while(!timeout_ready) sched_yield();
 }
 
 void tearDown() {
@@ -409,7 +410,7 @@ void *multi_write_writer_thread(void *args) {
     // Loop until at least one byte is available
     while (max_sendable_data < (sizeof(multi_write_header_t) + TEST_MULTI_WRITE_MAX_DATA_SIZE) * TEST_MRRB_MAX_WRITERS) {
       // Yield and wait for other threads to release space
-      pthread_yield_np();
+      sched_yield();
       // Poll the remaining space again
       max_sendable_data = mrrb_get_remaining_space(&mrrb);
     }

@@ -1,5 +1,7 @@
 # Multi Reader Ring Buffer
 
+![CI](https://github.com/LucaRufer/MRRB/actions/workflows/ci.yml/badge.svg?branch=dev/lrufer)
+
 MRRB is a C library that provides a simple and light-weight interface to fork incoming data from a single or multiple sources to multiple readers. For example, it allows re-targeting of 'printf' on an embedded to multiple sinks like ITM trace, a UART VCP, a log file or an ethernet socket at the same time with low overhead.
 
 ## Installation

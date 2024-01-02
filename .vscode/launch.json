@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Nucleo Debug",
+      "name": "Nucleo Debug STLink",
       "cwd": "${workspaceFolder}",
       "executable": "MRRB_Example.elf",
       "request": "launch",
@@ -14,6 +14,26 @@
         "-enable-pretty-printing"
       ],
       "svdPath": "${workspaceFolder}/docs/Debugging/STM32H723.svd"
+    },
+    {
+      "name": "Nucleo Debug OpenOCD",
+      "cwd": "${workspaceFolder}",
+      "executable": "MRRB_Example.elf",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "openocd",
+      "interface": "swd",
+      "device": "STM32H723ZG",
+      "runToEntryPoint": "main",
+      "preRestartCommands": [
+          "target remote localhost:3333",
+          "add-symbol-file MRRB_Example.elf",
+          "enable breakpoint",
+          "monitor reset"
+      ],
+      "configFiles": ["${workspaceFolder}/docs/Debugging/stm32h7x.cfg"],
+      "svdFile": "${workspaceFolder}/docs/Debugging/STM32H723.svd",
+      "preLaunchTask": "Download Nucleo Debug"
     },
     {
       "name": "Unity Test Debug",

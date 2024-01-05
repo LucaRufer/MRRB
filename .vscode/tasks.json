@@ -24,6 +24,16 @@
       "dependsOn": "Build Nucleo Debug"
     },
     {
+      "label": "Download Nucleo OpenOCD",
+      "type": "shell",
+      "command": [
+        "openocd",
+        "-f ${workspaceFolder}/docs/Debugging/stm32h7x.cfg",
+        "-c \"program MRRB_Example.elf verify exit\"",
+      ],
+      "dependsOn": "Build Nucleo Debug"
+    },
+    {
       "label": "Build Unity Test",
       "type": "shell",
       "command": "cd Middlewares/Third_Party/MRRB/test; make compile",

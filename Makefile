@@ -42,6 +42,8 @@ INCS := $(shell find $(INC_DIRS) -type d)
 DEFS += DEBUG
 DEFS += USE_HAL_DRIVER STM32H723xx
 DEFS += LWIP_DEBUG
+# Used symbols
+USED_SYMBOLS += uxTopUsedPriority
 # C and C++ flags
 CPPFLAGS += $(addprefix -I,$(INCS))
 # Architecture
@@ -53,24 +55,40 @@ CPPFLAGS += -Wall -Wunused -Wextra -Wno-pointer-sign -Wno-unused-parameter
 CPPFLAGS += -O0 -g3 -ggdb
 # Preprocessor Macros
 CPPFLAGS += $(addprefix -D,$(DEFS))
+# Used Symbols
+CPPFLAGS += $(addprefix -u=,$(USED_SYMBOLS))
 # Flags
 CPPFLAGS += -ffunction-sections -fdata-sections  -fstack-usage
-## Generate assembly files interleaved with c-code
-CPPFLAGS +=
-LDFLAGS ?= -lm -T$(LINK_FILE) $(ARCHFLAGS) -Wl,-Map="$(TARGET).map" -Wl,--gc-sections -static -Wl,--start-group -lc -lm -Wl,--end-group -Wl,--print-memory-usage
+## Linker Options ##
+# Static linking
+LDFLAGS += -static
+# Link math library
+LDFLAGS += -lm
+# Specify linker file
+LDFLAGS += -T$(LINK_FILE)
+# Add Architecture Flags
+LDFLAGS += $(ARCHFLAGS)
+# Create link map file
+LDFLAGS += -Wl,-Map="$(TARGET).map"
+# Remove unused symbols, except for specified ones
+LDFLAGS += -Wl,--gc-sections $(addprefix -Xlinker -undefined=,$(USED_SYMBOLS))
+# Prevent problems in circular dependencies of c and m libraries
+LDFLAGS += -Wl,--start-group -lc -lm -Wl,--end-group
+# Print memory usage after linking
+LDFLAGS += -Wl,--print-memory-usage
 ## File Specific Targets ##
 # assembly
-$(BUILD_DIR)/%.s.o: $(PROJECT_DIR)/%.s
+$(BUILD_DIR)/%.s.o: $(PROJECT_DIR)/%.s Makefile
 	@echo "AS $(notdir $@)"
 	@$(MKDIR_P) $(dir $@)
 	@$(AS) $(ASFLAGS) -c $< -o $@
 # c source
-$(BUILD_DIR)/%.c.o: $(PROJECT_DIR)/%.c
+$(BUILD_DIR)/%.c.o: $(PROJECT_DIR)/%.c Makefile
 	@echo "CC $(notdir $@)"
 	@$(MKDIR_P) $(dir $@)
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@  -MT $@ -MMD -MP -MF $(@:.o=.d) > $@.lst
 # c++ source
-$(BUILD_DIR)/%.cpp.o: $(PROJECT_DIR)/%.cpp
+$(BUILD_DIR)/%.cpp.o: $(PROJECT_DIR)/%.cpp Makefile
 	@echo "CXX $(notdir $@)"
 	@$(MKDIR_P) $(dir $@)
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@

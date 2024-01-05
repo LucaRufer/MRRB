@@ -21,6 +21,7 @@
 #include "cmsis_os.h"
 #include "fatfs.h"
 #include "lwip.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -55,7 +56,7 @@ uint8_t __attribute__((section(".LWIP_heap"))) LWIP_heap[MEM_SIZE];
 void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
-
+void TIM23_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -96,6 +97,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   MX_FATFS_Init();
+  MX_TIM23_Init();
   /* USER CODE BEGIN 2 */
   mrrb_retarget_init();
   /* USER CODE END 2 */
@@ -199,7 +201,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-
+  if (htim->Instance == TIM23) {
+    TIM23_PeriodElapsedCallback(&htim23);
+  }
   /* USER CODE END Callback 1 */
 }
 

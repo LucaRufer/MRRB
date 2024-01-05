@@ -33,7 +33,7 @@
       ],
       "configFiles": ["${workspaceFolder}/docs/Debugging/stm32h7x.cfg"],
       "svdFile": "${workspaceFolder}/docs/Debugging/STM32H723.svd",
-      "preLaunchTask": "Download Nucleo Debug"
+      "preLaunchTask": "Download Nucleo OpenOCD"
     },
     {
       "name": "Unity Test Debug",

@@ -1,0 +1,8 @@
+{
+	"recommendations": [
+		"ms-vscode.cpptools-extension-pack",
+		"marus25.cortex-debug",
+		"jeandudey.cortex-debug-dp-stm32h7",
+		"mcu-debug.rtos-views"
+	]
+}

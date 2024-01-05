@@ -27,11 +27,16 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "sys.h"
+#include "tim.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+#ifdef __GNUC__
+#define USED __attribute__((used))
+#else
+#define USED
+#endif
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -57,6 +62,17 @@ const unsigned char *const header =
 "                    |                           |\n"
 "                    =============================\n"
 "\n\n\n";
+
+// RunTimeCounter counting variable
+volatile uint32_t _runTimeCounter_OverflowCount = 0;
+
+// Workaround for OpenOCD to detect FreeRTOS versions since 7.5.3
+#if (tskKERNEL_VERSION_MAJOR) > 7 || \
+    ((tskKERNEL_VERSION_MAJOR) == 7 && (tskKERNEL_VERSION_MINOR > 5)) || \
+    ((tskKERNEL_VERSION_MAJOR) == 7 && (tskKERNEL_VERSION_MINOR == 5) && tskKERNEL_VERSION_BUILD >= 3)
+const int USED uxTopUsedPriority = configMAX_PRIORITIES - 1;
+#endif
+
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -68,6 +84,7 @@ const osThreadAttr_t defaultTask_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+void TIM23_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 void _print_threads_status(void);
 /* USER CODE END FunctionPrototypes */
 
@@ -77,7 +94,53 @@ extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* Hook prototypes */
+void configureTimerForRunTimeStats(void);
+unsigned long getRunTimeCounterValue(void);
 void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName);
+
+/* USER CODE BEGIN 1 */
+/* Functions needed when configGENERATE_RUN_TIME_STATS is on */
+void configureTimerForRunTimeStats(void)
+{
+  // If callback registration is enabled, register the period elapsed callback
+#if USE_HAL_TIM_REGISTER_CALLBACKS
+  HAL_TIM_RegisterCallback(&htim23, HAL_TIM_PERIOD_ELAPSED_CB_ID, TIM23_PeriodElapsedCallback);
+#endif /* USE_HAL_TIM_REGISTER_CALLBACKS */
+  // If Debug is enabled, freeze the timer when the debugger halts the core
+#ifdef DEBUG
+  __HAL_DBGMCU_FREEZE_TIM23();
+#endif /* DEBUG */
+  // Set the overflow to 0
+  _runTimeCounter_OverflowCount = 0;
+  // Start the timer
+  HAL_TIM_Base_Start_IT(&htim23);
+}
+
+unsigned long getRunTimeCounterValue(void)
+{
+  uint32_t upper, lower;
+  uint64_t runtime_us;
+  // Acquire upper and lower 32-bit counter values
+  upper = _runTimeCounter_OverflowCount;
+  lower = __HAL_TIM_GET_COUNTER(&htim23);
+  __DSB();
+  // Check that no overflow occurrend while reading the values
+  // Only single re-try, as this happens once per 1.2 hours.
+  if (upper != _runTimeCounter_OverflowCount) {
+    upper = _runTimeCounter_OverflowCount;
+    lower = __HAL_TIM_GET_COUNTER(&htim23);
+  }
+  // combine upper and lower 32 bits
+  runtime_us = (((uint64_t) upper) << 32) | lower;
+  return runtime_us;
+}
+
+void TIM23_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  if(htim == &htim23) {
+    _runTimeCounter_OverflowCount++;
+  }
+}
+/* USER CODE END 1 */
 
 /* USER CODE BEGIN 4 */
 void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
@@ -139,7 +202,7 @@ void StartDefaultTask(void *argument)
   /* init code for LWIP */
   MX_LWIP_Init();
   /* USER CODE BEGIN StartDefaultTask */
-  
+
   // Print the header
   printf(header);
 

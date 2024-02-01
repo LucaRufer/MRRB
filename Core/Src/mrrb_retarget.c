@@ -105,7 +105,7 @@ ring_buffer_reader_t retarget_mrrb_readers[MRRB_RETARGET_NUM_READERS];
 // UDP thread attributes
 const osThreadAttr_t retarget_udp_thread_attr = {
   .priority = osPriorityLow,
-  .stack_size = 256 * 4,
+  .stack_size = 384 * 4,
   .name = "retarget_udp"
 };
 

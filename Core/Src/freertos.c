@@ -81,6 +81,13 @@ const osThreadAttr_t defaultTask_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for RTOS_stats_UDP */
+osThreadId_t RTOS_stats_UDPHandle;
+const osThreadAttr_t RTOS_stats_UDP_attributes = {
+  .name = "RTOS_stats_UDP",
+  .stack_size = 384 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -89,6 +96,7 @@ void _print_threads_status(void);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
+extern void RTOS_stats_UDP_thread(void *argument);
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -179,6 +187,9 @@ void MX_FREERTOS_Init(void) {
   /* Create the thread(s) */
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* creation of RTOS_stats_UDP */
+  RTOS_stats_UDPHandle = osThreadNew(RTOS_stats_UDP_thread, NULL, &RTOS_stats_UDP_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */

@@ -15,10 +15,20 @@ jobs:
         run: arm-none-eabi-gcc --version
       - name: Build Example
         run: make all
+      - name: Upload Example Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Example-Build
+          path: MRRB_Example.elf
       - name: Build all variants
         run: |
           cd Middlewares/Third_Party/MRRB/test/lib
           ./build.sh
+      - name: Upload Library Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Library-Build
+          path: Middlewares/Third_Party/MRRB/test/lib/*.a
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -27,3 +37,8 @@ jobs:
         run: |
           cd Middlewares/Third_Party/MRRB/test
           make coverage
+      - name: Upload Test Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Test-Coverage
+          path: Middlewares/Third_Party/MRRB/test/coverage

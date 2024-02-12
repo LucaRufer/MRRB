@@ -28,7 +28,9 @@ CODE_LOCATION=..
 echo "Auto-generated code fix: $(date)" > $SETUP_LOG
 
 # Find all patches
-patches=$(ls -1 $PATCH_FOLDER/*.patch)
+shopt -s nullglob
+patches=$($PATCH_FOLDER/*.patch)
+shopt -u nullglob
 echo "" >> $SETUP_LOG
 echo "Located patch(es):" >> $SETUP_LOG
 for patch in $patches

@@ -29,7 +29,7 @@ echo "Auto-generated code fix: $(date)" > $SETUP_LOG
 
 # Find all patches
 shopt -s nullglob
-patches=$($PATCH_FOLDER/*.patch)
+patches=($PATCH_FOLDER/*.patch)
 shopt -u nullglob
 echo "" >> $SETUP_LOG
 echo "Located patch(es):" >> $SETUP_LOG

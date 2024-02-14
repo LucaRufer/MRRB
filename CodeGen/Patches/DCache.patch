@@ -1,0 +1,14 @@
+diff --git a/Core/Src/main.c b/Core/Src/main.c
+index 09a9a59..1cc34ee 100644
+--- a/Core/Src/main.c
++++ b/Core/Src/main.c
+@@ -78,7 +78,8 @@ int main(void)
+   SCB_EnableICache();
+ 
+   /* Enable D-Cache---------------------------------------------------------*/
+-  SCB_EnableDCache();
++  // D-Cache disabled by CodeGen/fix.sh to prevent DMA data problems
++  //SCB_EnableDCache();
+ 
+   /* MCU Configuration--------------------------------------------------------*/
+ 

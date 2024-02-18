@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "adc.h"
 #include "fatfs.h"
 #include "lwip.h"
 #include "tim.h"
@@ -102,6 +103,7 @@ int main(void)
   MX_USART3_UART_Init();
   MX_FATFS_Init();
   MX_TIM23_Init();
+  MX_ADC3_Init();
   /* USER CODE BEGIN 2 */
   mrrb_retarget_init();
   /* USER CODE END 2 */

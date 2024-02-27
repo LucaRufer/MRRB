@@ -13,7 +13,7 @@ SRC_DIRS += Drivers
 SRC_DIRS += FATFS
 SRC_DIRS += LWIP
 SRC_DIRS += Middlewares
-EXCLUDE_SRC_DIRS += Middlewares/Third_Party/MRRB/test
+EXCLUDE_DIRS += Middlewares/Third_Party/MRRB/test
 LINK_FILE ?= STM32H723ZGTX_FLASH.ld
 # Code Generation
 IOC_FILE := $(TARGET).ioc
@@ -29,15 +29,18 @@ MKDIR_P = mkdir -p
 # Add project directory as prefix
 INC_DIRS := $(addprefix $(PROJECT_DIR)/,$(INC_DIRS))
 SRC_DIRS := $(addprefix $(PROJECT_DIR)/,$(SRC_DIRS))
-EXCLUDE_SRC_DIRS := $(addprefix $(PROJECT_DIR)/,$(EXCLUDE_SRC_DIRS))
+EXCLUDE_DIRS := $(addprefix $(PROJECT_DIR)/,$(EXCLUDE_DIRS))
+# Expand directories
+INC_DIRS := $(shell find $(INC_DIRS) -type d)
+SRC_DIRS := $(shell find $(SRC_DIRS) -type d)
+EXCLUDE_DIRS := $(shell find $(EXCLUDE_DIRS) -type d)
+# Filter include and source paths
+INC_DIRS := $(filter-out $(EXCLUDE_DIRS),$(INC_DIRS))
+SRC_DIRS := $(filter-out $(EXCLUDE_DIRS),$(SRC_DIRS))
 # Find source files and filter excluded
-SRCS := $(shell find $(SRC_DIRS) -name "*.cpp" -or -name "*.c" -or -name "*.s")
-EXLUCDE_SRCS := $(shell find $(EXCLUDE_SRC_DIRS) -name "*.cpp" -or -name "*.c" -or -name "*.s")
-SRCS := $(filter-out $(EXLUCDE_SRCS),$(SRCS))
+SRCS := $(shell find $(SRC_DIRS) -maxdepth 1 -name "*.cpp" -or -name "*.c" -or -name "*.s")
 OBJS := $(patsubst $(PROJECT_DIR)/%, $(BUILD_DIR)/%, $(SRCS:%=%.o))
 DEPS := $(OBJS:.o=.d)
-# Includes
-INCS := $(shell find $(INC_DIRS) -type d)
 # Proprocessor Macros
 DEFS += DEBUG
 DEFS += USE_HAL_DRIVER STM32H723xx
@@ -45,7 +48,7 @@ DEFS += LWIP_DEBUG
 # Used symbols
 USED_SYMBOLS += uxTopUsedPriority
 # C and C++ flags
-CPPFLAGS += $(addprefix -I,$(INCS))
+CPPFLAGS += $(addprefix -I,$(INC_DIRS))
 # Architecture
 ARCHFLAGS += -mcpu=cortex-m7 --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb
 CPPFLAGS += -std=gnu11 $(ARCHFLAGS)

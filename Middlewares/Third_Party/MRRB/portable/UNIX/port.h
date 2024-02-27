@@ -40,6 +40,10 @@ extern "C" {
 
 /* Exported functions --------------------------------------------------------*/
 
+static inline void fence(void) {
+  asm volatile("" ::: "memory");
+}
+
 static inline int port_lock_init(pthread_mutex_t *mutex) {
   return (pthread_mutex_init(mutex, NULL) == 0) ? 0 : -1;
 }

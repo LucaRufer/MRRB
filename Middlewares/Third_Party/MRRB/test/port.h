@@ -43,6 +43,10 @@ extern int _port_show_as_interrupt;
 
 /* Port functions ------------------------------------------------------------*/
 
+static inline void fence(void) {
+  asm volatile("" ::: "memory");
+}
+
 static inline int port_lock_init(pthread_mutex_t *mutex) {
   if (_port_fail_next_lock_init) {
     _port_fail_next_lock_init = 0;

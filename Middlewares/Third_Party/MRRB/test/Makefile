@@ -40,9 +40,9 @@ CPPFLAGS += $(addprefix -I,$(INC_DIRS))
 ARCHFLAGS ?=
 CPPFLAGS += -std=gnu11 $(ARCHFLAGS)
 # Errors messages
-CPPFLAGS += -Wall -Wunused -Wextra -Wno-pointer-sign -Wno-unused-parameter
+CPPFLAGS += -Wall -Wunused -Wextra -Wno-pointer-sign -Wno-unused-parameter -Wimplicit-fallthrough
 # Optimizations and Debug symbols
-CPPFLAGS += -O0 -g3 -ggdb
+CPPFLAGS += -O3
 # Preprocessor Macros
 CPPFLAGS += $(addprefix -D,$(DEFS))
 # Coverage
@@ -87,6 +87,7 @@ compile: $(TARGET)
 run: compile
 	@./$(TARGET)
 coverage: clean $(COVERAGE_DIR)/$(COV).log run $(COVS)
+	@cat $(COVERAGE_DIR)/$(COV).log
 clean:
 	@echo "CLEAN"
 	@$(RM) -r $(BUILD_DIR)

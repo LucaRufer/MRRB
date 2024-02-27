@@ -1,6 +1,7 @@
 /**
  * @file        test.c
  * @brief       Tests for MRRB (UNIX version)
+ * @version     v0.2
  *
  * @author      Luca Rufer, luca.rufer@swissloop.ch
  * @date        05.12.2023
@@ -33,12 +34,16 @@ extern "C" {
 
 // Multi-test definitions
 #define TEST_MRRB_BUFFER_LENGTH 128
-#define TEST_MRRB_MAX_READERS 8
+#define TEST_MRRB_MAX_READERS 25
 #define TEST_MRRB_MAX_WRITERS 5
 #define TEST_TEXT_LEN 450
+#define TEST_MULTI_WRITE_READERS 8
 #define TEST_MULTI_WRITE_CONSEC_WRITES 5
 #define TEST_MULTI_WRITE_DATA_AMOUNT 1000
 #define TEST_MULTI_WRITE_MAX_DATA_SIZE 15
+
+// Other definitions
+#define READER_OVERRUN_POLICY_COUNT 3
 
 /* Exported macros -----------------------------------------------------------*/
 
@@ -72,36 +77,29 @@ extern "C" {
 
 /* Private typedef -----------------------------------------------------------*/
 
-typedef struct immediate_read_state_s {
-  const unsigned int *write_data_lengths;
-  unsigned int num_writes;
-  unsigned int iteration;
-  unsigned int data_received;
-  unsigned int split_remaining_data;
-} immediate_read_state_t;
-
-typedef struct triggered_read_state_s {
-  const unsigned int *write_data_lengths;
-  unsigned int num_writes;
-  unsigned int iteration;
-  unsigned int data_received;
-  unsigned int split_remaining_data;
-  unsigned int outstanding_completion;
-} triggered_read_state_t;
-
 typedef enum read_state_type_e {
-  READER_STATE_IMMEDIATE = 0,
-  READER_STATE_TRIGGERED,
-  READER_STATE_NUM
+  READER_STATE_IMMEDIATE,
+  READER_STATE_TRIGGERED
 } read_state_type_t;
 
-typedef struct any_read_state_s {
-  read_state_type_t type;
-  union {
-    immediate_read_state_t immediate;
-    triggered_read_state_t triggered;
-  };
-} any_read_state_t;
+typedef enum enable_type_e {
+  ENABLE_TYPE_ALWAYS_ENABLED,
+  ENABLE_TYPE_INITIALLY_ENABLED,
+  ENABLE_TYPE_INITIALLY_DISABLED,
+  ENABLE_TYPE_ALWAYS_DISABLED,
+} enable_type_t;
+
+typedef struct read_state_s {
+  read_state_type_t read_type;
+  const unsigned int *write_data_lengths;
+  unsigned int num_writes;
+  unsigned int iteration;
+  unsigned int data_received;
+  unsigned int split_remaining_data;
+  unsigned int outstanding_read_trigger; // Optional
+  unsigned int outstanding_abort_trigger;// Optional
+  enable_type_t enable_type; // Optional
+} read_state_t;
 
 typedef struct multi_write_header_s {
   unsigned int thread_num;
@@ -110,7 +108,7 @@ typedef struct multi_write_header_s {
 
 typedef struct multi_write_read_state_s {
   unsigned int reader_number;
-  unsigned int reader_progress[TEST_MRRB_MAX_READERS];
+  unsigned int reader_progress[TEST_MULTI_WRITE_READERS];
   pthread_mutex_t mutex;
   pthread_cond_t cond;
   unsigned int seed;
@@ -133,7 +131,7 @@ typedef struct multi_write_write_state_s {
 
 /* Private function prototypes -----------------------------------------------*/
 
-// Helper Functions
+// Read functions
 void read_ignore(multi_reader_ring_buffer_t *mrrb,
                  void *handle,
                  const unsigned char *data,
@@ -150,10 +148,10 @@ void swsr_triggered_read(multi_reader_ring_buffer_t *mrrb,
                          void *handle,
                          const unsigned char *data,
                          unsigned int data_length);
-void swsr_triggered_read_trigger(multi_reader_ring_buffer_t *mrrb,
-                                 triggered_read_state_t *handle);
-void *multi_write_writer_thread(void *args);
-void *multi_write_reader_thread(void *args);
+void overrun_triggered_read(multi_reader_ring_buffer_t *mrrb,
+                            void *handle,
+                            const unsigned char *data,
+                            unsigned int data_length);
 void multi_write_reader_read(multi_reader_ring_buffer_t *mrrb,
                              void *handle,
                              const unsigned char *data,
@@ -161,6 +159,19 @@ void multi_write_reader_read(multi_reader_ring_buffer_t *mrrb,
 void multi_write_reader_check_data(multi_write_read_state_t *state,
                                    const unsigned char *data,
                                    unsigned int data_length);
+
+// Abort functions
+void abort_ignore(multi_reader_ring_buffer_t *mrrb, void *handle);
+void abort_immediate(multi_reader_ring_buffer_t *mrrb, void *handle);
+void abort_triggered(multi_reader_ring_buffer_t *mrrb, void *handle);
+
+// Trigger functions
+void swsr_triggered_read_trigger(multi_reader_ring_buffer_t *mrrb, void *handle);
+void triggered_abort_trigger(multi_reader_ring_buffer_t *mrrb, void *handle);
+
+// Multi-write threads
+void *multi_write_writer_thread(void *args);
+void *multi_write_reader_thread(void *args);
 
 // Test functions
 void test_write_setup(void);
@@ -170,6 +181,7 @@ void test_single_write_single_read_immediate_port_failure(void);
 void test_single_write_single_read_after(void);
 void test_consec_write_single_read_after(void);
 void test_single_write_multiple_read(void);
+void test_overrun(void);
 void test_multiple_write_multiple_read(void);
 
 // Misc functions
@@ -218,6 +230,24 @@ const unsigned int multi_write_data_lengths[][TEST_MULTI_WRITE_CONSEC_WRITES] = 
   {9, 8, 7, 6, TEST_MRRB_BUFFER_LENGTH - 30},       // Exact buffer fill
 };
 
+// Read function table
+mrrb_reader_notify_data_t read_fn_table[] = {
+  swsr_immediate_read,
+  swsr_triggered_read,
+};
+
+mrrb_reader_notify_data_t overrun_read_fn_table[] = {
+  swsr_immediate_read,
+  overrun_triggered_read,
+};
+
+// Abort function table
+mrrb_reader_abort_data_t abort_fn_table[] = {
+  NULL,
+  abort_immediate,
+  abort_triggered,
+};
+
 // Port mock variables
 int _port_fail_next_lock_init = 0;
 int _port_fail_next_lock_deinit = 0;
@@ -238,6 +268,7 @@ int main() {
   RUN_TEST(test_single_write_single_read_after);
   RUN_TEST(test_consec_write_single_read_after);
   RUN_TEST(test_single_write_multiple_read);
+  RUN_TEST(test_overrun);
   for (unsigned int i = 0; i < 10; i++) {
     RUN_TEST(test_multiple_write_multiple_read);
   }
@@ -282,6 +313,12 @@ void read_ignore(multi_reader_ring_buffer_t *mrrb,
   TEST_ASSERT_GREATER_THAN_INT(0, data_length);
 }
 
+void abort_ignore(multi_reader_ring_buffer_t *mrrb, void *handle) {
+  // Check arguments
+  TEST_ASSERT_NOT_NULL(mrrb);
+  TEST_ASSERT_NOT_NULL(handle);
+}
+
 void swsr_immediate_read(multi_reader_ring_buffer_t *mrrb,
                          void *handle,
                          const unsigned char *data,
@@ -293,7 +330,7 @@ void swsr_immediate_read(multi_reader_ring_buffer_t *mrrb,
   TEST_ASSERT_GREATER_THAN_INT(0, data_length);
 
   // Cast handle
-  immediate_read_state_t *state = (immediate_read_state_t *) handle;
+  read_state_t *state = (read_state_t *) handle;
   TEST_ASSERT_LESS_THAN_INT(state->num_writes, state->iteration);
 
   // Check all data is transmitted
@@ -325,13 +362,6 @@ void swsr_immediate_read_port_failure(multi_reader_ring_buffer_t *mrrb,
                                       void *handle,
                                       const unsigned char *data,
                                       unsigned int data_length) {
-  // Check arguments
-  TEST_ASSERT_NOT_NULL(mrrb);
-  TEST_ASSERT_NOT_NULL(handle);
-  TEST_ASSERT_NOT_NULL(data);
-  TEST_ASSERT_GREATER_THAN_INT(0, data_length);
-
-  // During the port fail test, the reader should never be called
   TEST_FAIL();
 }
 
@@ -346,7 +376,7 @@ void swsr_triggered_read(multi_reader_ring_buffer_t *mrrb,
   TEST_ASSERT_GREATER_THAN_INT(0, data_length);
 
   // Cast handle
-  triggered_read_state_t *state = (triggered_read_state_t *) handle;
+  read_state_t *state = (read_state_t *) handle;
   TEST_ASSERT_LESS_THAN_INT(state->num_writes, state->iteration);
 
   // Check all data is transmitted
@@ -370,18 +400,72 @@ void swsr_triggered_read(multi_reader_ring_buffer_t *mrrb,
   if (state->split_remaining_data == 0) {
     state->iteration++;
   }
-  state->outstanding_completion++;
+  state->outstanding_read_trigger++;
 }
 
-void swsr_triggered_read_trigger(multi_reader_ring_buffer_t *mrrb,
-                                 triggered_read_state_t *handle) {
+void overrun_triggered_read(multi_reader_ring_buffer_t *mrrb,
+                          void *handle,
+                          const unsigned char *data,
+                          unsigned int data_length) {
   // Check arguments
   TEST_ASSERT_NOT_NULL(mrrb);
   TEST_ASSERT_NOT_NULL(handle);
-  // Reduce outstanding completions
-  handle->outstanding_completion--;
+  TEST_ASSERT_NOT_NULL(data);
+  TEST_ASSERT_GREATER_THAN_INT(0, data_length);
+
+  // Cast handle
+  read_state_t *state = (read_state_t *) handle;
+
+  // Check all data is transmitted
+  TEST_ASSERT_EQUAL_MEMORY(test_text + state->data_received, data, data_length);
+
+  // Increment test state
+  state->data_received += data_length;
+  state->outstanding_read_trigger++;
+}
+
+void abort_immediate(multi_reader_ring_buffer_t *mrrb, void *handle) {
+  // Check arguments
+  TEST_ASSERT_NOT_NULL(mrrb);
+  TEST_ASSERT_NOT_NULL(handle);
+  // Cast handle
+  mrrb_abort_complete(mrrb, handle);
+}
+
+void abort_triggered(multi_reader_ring_buffer_t *mrrb, void *handle) {
+  // Check arguments
+  TEST_ASSERT_NOT_NULL(mrrb);
+  TEST_ASSERT_NOT_NULL(handle);
+  // Cast handle
+  read_state_t *state = (read_state_t *) handle;
+  // Increase outstanding abort triggers
+  state->outstanding_abort_trigger++;
+  // Call data complete
+}
+
+void swsr_triggered_read_trigger(multi_reader_ring_buffer_t *mrrb, void *handle) {
+  // Check arguments
+  TEST_ASSERT_NOT_NULL(mrrb);
+  TEST_ASSERT_NOT_NULL(handle);
+  // Cast handle
+  read_state_t *state = (read_state_t *) handle;
+
+  // Reduce outstanding read triggers
+  TEST_ASSERT_GREATER_THAN(0, state->outstanding_read_trigger--);
   // Call data complete
   mrrb_read_complete(mrrb, handle);
+}
+
+void triggered_abort_trigger(multi_reader_ring_buffer_t *mrrb, void *handle) {
+  // Check arguments
+  TEST_ASSERT_NOT_NULL(mrrb);
+  TEST_ASSERT_NOT_NULL(handle);
+  // Cast handle
+  read_state_t *state = (read_state_t *) handle;
+  // Reduce outstanding abort triggers
+  TEST_ASSERT_GREATER_THAN(0, state->outstanding_abort_trigger--);
+  // Call data complete
+  mrrb_abort_complete(mrrb, handle);
 }
 
 void *multi_write_writer_thread(void *args) {
@@ -646,9 +730,10 @@ void test_illegal_arguments() {
   int state = 0;
   int invalid_state = 0;
   // Reader init
-  TEST_ASSERT_EQUAL_INT(-1, mrrb_reader_init(NULL, (void *) &state, read_ignore));
-  TEST_ASSERT_EQUAL_INT(-1, mrrb_reader_init(&readers[0], (void *) &state, NULL));
-  TEST_ASSERT_EQUAL_INT( 0, mrrb_reader_init(&readers[0], (void *) &state, read_ignore));
+  TEST_ASSERT_EQUAL_INT(-1, mrrb_reader_init(NULL, (void *) &state, MRRB_READER_OVERRUN_SKIP, read_ignore, abort_ignore));
+  TEST_ASSERT_EQUAL_INT(-1, mrrb_reader_init(&readers[0], (void *) &state, MRRB_READER_OVERRUN_SKIP, NULL, abort_ignore));
+  TEST_ASSERT_EQUAL_INT(-1, mrrb_reader_init(&readers[0], (void *) &state, MRRB_READER_OVERRUN_SKIP, read_ignore, NULL));
+  TEST_ASSERT_EQUAL_INT( 0, mrrb_reader_init(&readers[0], (void *) &state, MRRB_READER_OVERRUN_SKIP, read_ignore, abort_ignore));
 
   // MRRB init
   TEST_ASSERT_EQUAL_INT(-1, mrrb_init(NULL, mrrb_buffer, TEST_MRRB_BUFFER_LENGTH, readers, 1));
@@ -661,6 +746,8 @@ void test_illegal_arguments() {
   // Remaining Space functions
   TEST_ASSERT_EQUAL_UINT(0, mrrb_get_remaining_space(NULL));
   TEST_ASSERT_EQUAL_UINT(TEST_MRRB_BUFFER_LENGTH, mrrb_get_remaining_space(&mrrb));
+  TEST_ASSERT_EQUAL_UINT(0, mrrb_get_overwritable_space(NULL));
+  TEST_ASSERT_EQUAL_UINT(TEST_MRRB_BUFFER_LENGTH, mrrb_get_overwritable_space(&mrrb));
   TEST_ASSERT_EQUAL_INT(-1, mrrb_is_empty(NULL));
   TEST_ASSERT_EQUAL_INT( 1, mrrb_is_empty(&mrrb));
   TEST_ASSERT_EQUAL_INT(-1, mrrb_is_full(NULL));
@@ -682,10 +769,22 @@ void test_illegal_arguments() {
   TEST_ASSERT_EQUAL_INT(-1, mrrb_write(&mrrb, NULL, sizeof(buffer)));
   TEST_ASSERT_EQUAL_INT( 0, mrrb_write(&mrrb, buffer, 0));
   TEST_ASSERT_EQUAL_INT(sizeof(buffer), mrrb_write(&mrrb, buffer, sizeof(buffer)));
+
+  // Read complete
   mrrb_read_complete(NULL, &state);
   mrrb_read_complete(&mrrb, &invalid_state);
   mrrb_read_complete(&mrrb, NULL);
   mrrb_read_complete(&mrrb, &state);
+
+  // Abort complete
+  mrrb_abort_complete(NULL, &state);
+  mrrb_abort_complete(&mrrb, &invalid_state);
+  mrrb_abort_complete(&mrrb, NULL);
+  mrrb_abort_complete(&mrrb, &state);
+
+  // MRRB Reader deinit
+  TEST_ASSERT_EQUAL_INT(-1, mrrb_reader_deinit(NULL));
+  TEST_ASSERT_EQUAL_INT( 0, mrrb_reader_deinit(&readers[0]));
 
   // MRRB deinit
   TEST_ASSERT_EQUAL_INT(-1, mrrb_deinit(NULL));
@@ -696,13 +795,13 @@ void test_single_write_single_read_immediate() {
   unsigned int num_writes = ARRAY_LENGTH(single_write_data_lengths);
 
   // Create test state
-  immediate_read_state_t immediate_reader_state = {
+  read_state_t reader_state = {
     .write_data_lengths = single_write_data_lengths,
     .num_writes = num_writes
   };
 
   // Initialize first reader
-  mrrb_reader_init(&readers[0], (void *) &immediate_reader_state, swsr_immediate_read);
+  mrrb_reader_init(&readers[0], (void *) &reader_state, MRRB_READER_OVERRUN_BLOCKING, swsr_immediate_read, NULL);
 
   // Initialize MRRB. Check for successful initialization.
   int init_sts = mrrb_init(&mrrb, mrrb_buffer, TEST_MRRB_BUFFER_LENGTH, readers, 1);
@@ -728,11 +827,12 @@ void test_single_write_single_read_immediate() {
     TEST_MRRB_IS_EMPTY(&mrrb);
 
     // Check all data arrived
-    TEST_ASSERT_EQUAL_INT(pData - test_text, immediate_reader_state.data_received);
+    TEST_ASSERT_EQUAL_INT(pData - test_text, reader_state.data_received);
   }
 
   // De-init MRRB and check for success
   TEST_ASSERT_EQUAL_INT(0, mrrb_deinit(&mrrb));
+  TEST_ASSERT_EQUAL_INT(0, mrrb_reader_deinit(&readers[0]));
 }
 
 void test_single_write_single_read_immediate_port_failure() {
@@ -740,14 +840,13 @@ void test_single_write_single_read_immediate_port_failure() {
   enum port_write_failure_type {
     PORT_WRITE_FAILURE_LOCK_1,
     PORT_WRITE_FAILURE_LOCK_2,
-    PORT_WRITE_FAILURE_UNLOCK_1,
-    PORT_WRITE_FAILURE_UNLOCK_2,
+    PORT_WRITE_FAILURE_UNLOCK,
     PORT_WRITE_FAILURE_COUNT
   };
 
   // Initialize the reader
   int state = 0;
-  mrrb_reader_init(&readers[0], (void *) &state, swsr_immediate_read_port_failure);
+  mrrb_reader_init(&readers[0], (void *) &state, MRRB_READER_OVERRUN_BLOCKING, swsr_immediate_read_port_failure, NULL);
 
   // Test MRRB Initialization failure
   port_mock_fail_next_lock_init();
@@ -772,11 +871,8 @@ void test_single_write_single_read_immediate_port_failure() {
       case PORT_WRITE_FAILURE_LOCK_2:
         port_mock_fail_nth_lock(2);
         break;
-      case PORT_WRITE_FAILURE_UNLOCK_1:
+      case PORT_WRITE_FAILURE_UNLOCK:
         port_mock_fail_nth_unlock(1);
-        break;
-      case PORT_WRITE_FAILURE_UNLOCK_2:
-        port_mock_fail_nth_unlock(2);
         break;
       default:
         TEST_FAIL();
@@ -792,20 +888,20 @@ void test_single_write_single_read_immediate_port_failure() {
   port_mock_fail_nth_lock(1);
   mrrb_read_complete(&mrrb, &state);
 
+  // Abort complete lock failure
+  port_mock_fail_nth_lock(1);
+  mrrb_abort_complete(&mrrb, &state);
+
   // reader enable/disable port failure
-  for (unsigned int i = 0; i < 4; i++) {
+  for (unsigned int i = 0; i < 2; i++) {
     // Initialize MRRB
     TEST_ASSERT_EQUAL_INT(0, mrrb_init(&mrrb, mrrb_buffer, TEST_MRRB_BUFFER_LENGTH, readers, 1));
 
-    // Determine lock or unlock failure
-    if ((i & 0b01) == 0b01) {
-      port_mock_fail_nth_lock(1);
-    } else {
-      port_mock_fail_nth_unlock(1);
-    }
+    // Fail locking
+    port_mock_fail_nth_lock(1);
 
     // Determine enable or disable
-    if ((i & 0b10) == 0b10) {
+    if (i == 0) {
       TEST_ASSERT_EQUAL_INT(-1, mrrb_reader_enable(&mrrb, &readers[0]));
     } else {
       TEST_ASSERT_EQUAL_INT(-1, mrrb_reader_disable(&mrrb, &readers[0]));
@@ -828,13 +924,13 @@ void test_single_write_single_read_after() {
   unsigned int num_writes = ARRAY_LENGTH(single_write_data_lengths);
 
   // Create test state
-  triggered_read_state_t triggered_reader_state = {
+  read_state_t reader_state = {
     .write_data_lengths = single_write_data_lengths,
     .num_writes = num_writes,
   };
 
   // Initialize first reader
-  mrrb_reader_init(&readers[0], (void *) &triggered_reader_state, swsr_triggered_read);
+  mrrb_reader_init(&readers[0], (void *) &reader_state, MRRB_READER_OVERRUN_BLOCKING, swsr_triggered_read, NULL);
 
   // Initialize MRRB. Check for successful initialization.
   int init_sts = mrrb_init(&mrrb, mrrb_buffer, TEST_MRRB_BUFFER_LENGTH, readers, 1);
@@ -856,21 +952,21 @@ void test_single_write_single_read_after() {
     TEST_MRRB_IS_NOT_EMPTY(&mrrb);
 
     // Check for outstanding trigger
-    TEST_ASSERT_NOT_EQUAL_UINT(0, triggered_reader_state.outstanding_completion);
+    TEST_ASSERT_NOT_EQUAL_UINT(0, reader_state.outstanding_read_trigger);
 
     // Trigger
-    swsr_triggered_read_trigger(&mrrb, &triggered_reader_state);
+    swsr_triggered_read_trigger(&mrrb, &reader_state);
 
     // If data was split on the edge of the buffer, trigger again
-    if (triggered_reader_state.outstanding_completion > 0) {
-      swsr_triggered_read_trigger(&mrrb, &triggered_reader_state);
+    if (reader_state.outstanding_read_trigger > 0) {
+      swsr_triggered_read_trigger(&mrrb, &reader_state);
     }
 
     // Check all data arrived
-    TEST_ASSERT_EQUAL_INT(pData - test_text, triggered_reader_state.data_received);
+    TEST_ASSERT_EQUAL_INT(pData - test_text, reader_state.data_received);
 
     // Check no outstanding triggers remain
-    TEST_ASSERT_EQUAL_UINT(0, triggered_reader_state.outstanding_completion);
+    TEST_ASSERT_EQUAL_UINT(0, reader_state.outstanding_read_trigger);
 
     // Triggered reader: check that buffer is empty after the trigger.
     TEST_MRRB_IS_EMPTY(&mrrb);
@@ -878,6 +974,7 @@ void test_single_write_single_read_after() {
 
   // De-init MRRB and check for success
   TEST_ASSERT_EQUAL_INT(0, mrrb_deinit(&mrrb));
+  TEST_ASSERT_EQUAL_INT(0, mrrb_reader_deinit(&readers[0]));
 }
 
 void test_consec_write_single_read_after() {
@@ -892,13 +989,13 @@ void test_consec_write_single_read_after() {
   }
 
   // Create test state
-  triggered_read_state_t triggered_reader_state = {
+  read_state_t reader_state = {
     .write_data_lengths = write_batch_lengths,
     .num_writes = 2 * num_writes,
   };
 
   // Initialize first reader
-  mrrb_reader_init(&readers[0], (void *) &triggered_reader_state, swsr_triggered_read);
+  mrrb_reader_init(&readers[0], (void *) &reader_state, MRRB_READER_OVERRUN_BLOCKING, swsr_triggered_read, NULL);
 
   // Initialize MRRB. Check for successful initialization.
   int init_sts = mrrb_init(&mrrb, mrrb_buffer, TEST_MRRB_BUFFER_LENGTH, readers, 1);
@@ -921,22 +1018,22 @@ void test_consec_write_single_read_after() {
     TEST_MRRB_IS_NOT_EMPTY(&mrrb);
 
     // Check for outstanding trigger
-    TEST_ASSERT_NOT_EQUAL_UINT(0, triggered_reader_state.outstanding_completion);
+    TEST_ASSERT_NOT_EQUAL_UINT(0, reader_state.outstanding_read_trigger);
 
     // Trigger (up to three times: first write, to end of ring buffer, spill-over in ring buffer)
-    swsr_triggered_read_trigger(&mrrb, &triggered_reader_state);
-    if (triggered_reader_state.outstanding_completion > 0) {
-      swsr_triggered_read_trigger(&mrrb, &triggered_reader_state);
+    swsr_triggered_read_trigger(&mrrb, &reader_state);
+    if (reader_state.outstanding_read_trigger > 0) {
+      swsr_triggered_read_trigger(&mrrb, &reader_state);
     }
-    if (triggered_reader_state.outstanding_completion > 0) {
-      swsr_triggered_read_trigger(&mrrb, &triggered_reader_state);
+    if (reader_state.outstanding_read_trigger > 0) {
+      swsr_triggered_read_trigger(&mrrb, &reader_state);
     }
 
     // Check all data arrived
-    TEST_ASSERT_EQUAL_INT(pData - test_text, triggered_reader_state.data_received);
+    TEST_ASSERT_EQUAL_INT(pData - test_text, reader_state.data_received);
 
     // Check no outstanding triggers remain
-    TEST_ASSERT_EQUAL_UINT(0, triggered_reader_state.outstanding_completion);
+    TEST_ASSERT_EQUAL_UINT(0, reader_state.outstanding_read_trigger);
 
     // Triggered reader: check that buffer is empty after the trigger.
     TEST_MRRB_IS_EMPTY(&mrrb);
@@ -944,44 +1041,71 @@ void test_consec_write_single_read_after() {
 
   // De-init MRRB and check for success
   TEST_ASSERT_EQUAL_INT(0, mrrb_deinit(&mrrb));
+  TEST_ASSERT_EQUAL_INT(0, mrrb_reader_deinit(&readers[0]));
 }
 
 void test_single_write_multiple_read() {
   // Test settings
   unsigned int num_writes = ARRAY_LENGTH(single_write_data_lengths);
 
-  // Check at least two readers of each type
-  TEST_ASSERT_GREATER_OR_EQUAL_INT(4 * READER_STATE_NUM, TEST_MRRB_MAX_READERS);
-
   // Create reader states
-  any_read_state_t reader_states[TEST_MRRB_MAX_READERS];
+  read_state_t reader_states[TEST_MRRB_MAX_READERS];
+  memset(reader_states, 0, sizeof(reader_states));
+
+  int all_variants_covered = 0;
   for (unsigned int i = 0; i < TEST_MRRB_MAX_READERS; i++) {
+    unsigned int variant = i;
+
+    // Reader initialization options
+    read_state_t *reader_state = &reader_states[i];
+    read_state_type_t read_type;
+    mrrb_reader_overrun_policy_t overrun_policy;
+    mrrb_reader_notify_data_t notify_fn;
+    mrrb_reader_abort_data_t abort_fn;
+    enable_type_t enable_type;
+
     // select the reader type:
-    reader_states[i].type = i % READER_STATE_NUM;
-    // Initialize the reader depending on type
-    switch(reader_states[i].type) {
+    read_type = variant % ARRAY_LENGTH(read_fn_table);
+    variant /= ARRAY_LENGTH(read_fn_table);
+    notify_fn = read_fn_table[read_type];
+
+    // Generate a compiler warning if a read type is not covered
+    switch(read_type) {
       case READER_STATE_IMMEDIATE:
-        // Create test state
-        reader_states[i].immediate = (immediate_read_state_t) {
-          .write_data_lengths = single_write_data_lengths,
-          .num_writes = num_writes
-        };
-        // Initialize first reader
-        mrrb_reader_init(&readers[i], (void *) &reader_states[i].immediate, swsr_immediate_read);
-        break;
       case READER_STATE_TRIGGERED:
-        // Create test state
-        reader_states[i].triggered = (triggered_read_state_t) {
-          .write_data_lengths = single_write_data_lengths,
-          .num_writes = num_writes
-        };
-        // Initialize first reader
-        mrrb_reader_init(&readers[i], (void *) &reader_states[i].triggered, swsr_triggered_read);
-        break;
-      default:
-        TEST_FAIL();
+        ;
+    }
+
+    overrun_policy = MRRB_READER_OVERRUN_BLOCKING;
+    abort_fn = NULL;
+
+    // Select the enable type
+    enable_type = variant % 4;
+    variant /= 4;
+
+    switch(enable_type) {
+      case ENABLE_TYPE_ALWAYS_ENABLED:
+      case ENABLE_TYPE_INITIALLY_ENABLED:
+      case ENABLE_TYPE_INITIALLY_DISABLED:
+      case ENABLE_TYPE_ALWAYS_DISABLED:
+        ;
+    }
+
+    // Initialize the remainder of the state
+    reader_state->read_type = read_type;
+    reader_state->write_data_lengths = single_write_data_lengths;
+    reader_state->num_writes = num_writes;
+    reader_state->enable_type = enable_type;
+
+    // Initialize the reader
+    mrrb_reader_init(&readers[i], reader_state, overrun_policy, notify_fn, abort_fn);
+
+    // Check if all variants covered at least once
+    if (variant > 0) {
+      all_variants_covered = 1;
     }
   }
+  TEST_ASSERT(all_variants_covered);
 
   // Initialize MRRB. Check for successful initialization.
   int init_sts = mrrb_init(&mrrb, mrrb_buffer, TEST_MRRB_BUFFER_LENGTH, readers, TEST_MRRB_MAX_READERS);
@@ -989,10 +1113,10 @@ void test_single_write_multiple_read() {
   // Check buffer is empty after initialization
   TEST_MRRB_IS_EMPTY(&mrrb);
 
-  // Disable some readers
+  // Initially disable some types
   for (unsigned int i = 0; i < TEST_MRRB_MAX_READERS; i++) {
-    int enable_type = (i / READER_STATE_NUM) % 4;
-    if (enable_type == 2 || enable_type == 3) {
+    if (reader_states[i].enable_type == ENABLE_TYPE_INITIALLY_DISABLED ||
+        reader_states[i].enable_type == ENABLE_TYPE_ALWAYS_DISABLED) {
       TEST_ASSERT_EQUAL_INT(0, mrrb_reader_disable(&mrrb, &readers[i]));
     }
   }
@@ -1013,48 +1137,38 @@ void test_single_write_multiple_read() {
     // Check all readers
     for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
       // update the data received counter for disabled readers
-      int enable_type = (j / READER_STATE_NUM) % 4;
+      int enable_type = reader_states[j].enable_type;
 
-      // Switch depending on reader
-      switch(reader_states[j].type) {
-        case READER_STATE_IMMEDIATE:
-          if (((i % 2 == 0) && (enable_type == 2)) || ((i % 2 == 1) && (enable_type == 1)) || (enable_type == 3)) {
-            reader_states[j].immediate.data_received += single_write_data_lengths[i];
-            reader_states[j].immediate.iteration++;
-          }
-          TEST_ASSERT_EQUAL_INT(pData - test_text, reader_states[j].immediate.data_received);
-          break;
-        case READER_STATE_TRIGGERED:
-          // Trigger
-          if (((i % 2 == 0) && (enable_type == 2)) || ((i % 2 == 1) && (enable_type == 1)) || (enable_type == 3)) {
-            reader_states[j].triggered.data_received += single_write_data_lengths[i];
-            reader_states[j].triggered.iteration++;
-          } else {
-            swsr_triggered_read_trigger(&mrrb, &reader_states[j].triggered);
-            // If data was split on the edge of the buffer, trigger again
-            if (reader_states[j].triggered.outstanding_completion > 0) {
-              swsr_triggered_read_trigger(&mrrb, &reader_states[j].triggered);
-            }
-          }
-          TEST_ASSERT_EQUAL_INT(pData - test_text, reader_states[j].triggered.data_received);
-          break;
-        default:
-          TEST_FAIL();
+      int reader_enabled = (enable_type == ENABLE_TYPE_ALWAYS_ENABLED) ||
+                          ((enable_type == ENABLE_TYPE_INITIALLY_ENABLED) && (i % 2 == 0)) ||
+                          ((enable_type == ENABLE_TYPE_INITIALLY_DISABLED) && (i % 2 == 1));
+
+      // Manually advance disabled readers
+      if (!reader_enabled) {
+        reader_states[j].data_received += single_write_data_lengths[i];
+        reader_states[j].iteration++;
       }
 
+      // Switch depending on reader
+      if (reader_states[j].read_type == READER_STATE_TRIGGERED && reader_enabled) {
+        swsr_triggered_read_trigger(&mrrb, &reader_states[j]);
+        // If data was split on the edge of the buffer, trigger again
+        if (reader_states[j].outstanding_read_trigger > 0) {
+          swsr_triggered_read_trigger(&mrrb, &reader_states[j]);
+        }
+      }
+
+      // Check all data received
+      TEST_ASSERT_EQUAL_INT(pData - test_text, reader_states[j].data_received);
+
       // Update enable/disable of readers
-      if (i % 2 == 0) {
-        if (enable_type == 1) {
-          TEST_ASSERT_EQUAL_INT(0, mrrb_reader_disable(&mrrb, &readers[j]));
-        } else if (enable_type == 2) {
-          TEST_ASSERT_EQUAL_INT(0, mrrb_reader_enable(&mrrb, &readers[j]));
-        }
-      } else {
-        if (enable_type == 1) {
-          TEST_ASSERT_EQUAL_INT(0, mrrb_reader_enable(&mrrb, &readers[j]));
-        } else if (enable_type == 2) {
-          TEST_ASSERT_EQUAL_INT(0, mrrb_reader_disable(&mrrb, &readers[j]));
-        }
+      if (((enable_type == ENABLE_TYPE_INITIALLY_ENABLED) && (i % 2 == 0)) ||
+          ((enable_type == ENABLE_TYPE_INITIALLY_DISABLED) && (i % 2 == 1))) {
+        TEST_ASSERT_EQUAL_INT(0, mrrb_reader_disable(&mrrb, &readers[j]));
+      }
+      if (((enable_type == ENABLE_TYPE_INITIALLY_ENABLED) && (i % 2 == 1)) ||
+          ((enable_type == ENABLE_TYPE_INITIALLY_DISABLED) && (i % 2 == 0))) {
+        TEST_ASSERT_EQUAL_INT(0, mrrb_reader_enable(&mrrb, &readers[j]));
       }
     }
 
@@ -1064,24 +1178,86 @@ void test_single_write_multiple_read() {
 
   // De-init MRRB and check for success
   TEST_ASSERT_EQUAL_INT(0, mrrb_deinit(&mrrb));
+  for (unsigned int i = 0; i < TEST_MRRB_MAX_READERS; i++) {
+    TEST_ASSERT_EQUAL_INT(0, mrrb_reader_deinit(&readers[i]));
+  }
 }
 
-void test_multiple_write_multiple_read() {
-  pthread_t reader_threads[TEST_MRRB_MAX_READERS];
-  pthread_t writer_threads[TEST_MRRB_MAX_WRITERS];
-  multi_write_read_state_t reader_states[TEST_MRRB_MAX_READERS] = { 0 };
-  multi_write_write_state_t writer_states[TEST_MRRB_MAX_WRITERS] = { 0 };
-  multi_write_shared_write_state_t writer_shared_state = { 0 };
-
-  // Check test settings
-  TEST_ASSERT_LESS_OR_EQUAL_UINT(TEST_MRRB_BUFFER_LENGTH, (sizeof(multi_write_header_t) + TEST_MULTI_WRITE_MAX_DATA_SIZE) * TEST_MRRB_MAX_WRITERS);
+void test_overrun() {
+  // Test settings
+  const unsigned int overrun_1_data_lengths[] = {
+    TEST_MRRB_BUFFER_LENGTH - 10,
+    10,
+    TEST_MRRB_BUFFER_LENGTH,
+    10,
+    15,
+    TEST_MRRB_BUFFER_LENGTH - 5,
+  };
+  unsigned int num_writes_1 = ARRAY_LENGTH(overrun_1_data_lengths);
 
   // Create reader states
+  read_state_t reader_states[TEST_MRRB_MAX_READERS];
+  memset(reader_states, 0, sizeof(reader_states));
+
+  int all_variants_covered = 0;
   for (unsigned int i = 0; i < TEST_MRRB_MAX_READERS; i++) {
-    reader_states[i].reader_number = i;
-    reader_states[i].seed = i + 54389277;
-    mrrb_reader_init(&readers[i], (void *) &reader_states[i], multi_write_reader_read);
+    unsigned int variant = i;
+
+    // Reader initialization options
+    read_state_t *reader_state = &reader_states[i];
+    read_state_type_t read_type;
+    mrrb_reader_overrun_policy_t overrun_policy;
+    mrrb_reader_notify_data_t notify_fn;
+    mrrb_reader_abort_data_t abort_fn;
+
+    // select the reader type:
+    read_type = variant % ARRAY_LENGTH(overrun_read_fn_table);
+    variant /= ARRAY_LENGTH(overrun_read_fn_table);
+    notify_fn = overrun_read_fn_table[read_type];
+
+    // Generate a compiler warning if a read type is not covered
+    switch(read_type) {
+      case READER_STATE_IMMEDIATE:
+      case READER_STATE_TRIGGERED:
+      ;
+    }
+
+    // Select the overrun policy
+    overrun_policy = variant % READER_OVERRUN_POLICY_COUNT;
+    variant /= READER_OVERRUN_POLICY_COUNT;
+
+    // Generate a compiler warning if a policy is not covered
+    switch(overrun_policy) {
+      case MRRB_READER_OVERRUN_DISABLE:
+      case MRRB_READER_OVERRUN_BLOCKING:
+      case MRRB_READER_OVERRUN_SKIP:
+        ;
+    }
+
+    // Select the abort type
+    int abort_type = variant % ARRAY_LENGTH(abort_fn_table);
+    variant /= ARRAY_LENGTH(abort_fn_table);
+    abort_fn = abort_fn_table[abort_type];
+
+    // Prevent illegal combination
+    if (overrun_policy == MRRB_READER_OVERRUN_SKIP && abort_fn == NULL) {
+      abort_fn = abort_immediate;
+    }
+
+    // Initialize the remainder of the state
+    reader_state->read_type = read_type;
+    reader_state->write_data_lengths = overrun_1_data_lengths;
+    reader_state->num_writes = num_writes_1;
+
+    // Initialize the reader
+    mrrb_reader_init(&readers[i], reader_state, overrun_policy, notify_fn, abort_fn);
+
+    // Check if all variants covered at least once
+    if (variant > 0) {
+      all_variants_covered = 1;
+    }
   }
+  TEST_ASSERT(all_variants_covered);
 
   // Initialize MRRB. Check for successful initialization.
   int init_sts = mrrb_init(&mrrb, mrrb_buffer, TEST_MRRB_BUFFER_LENGTH, readers, TEST_MRRB_MAX_READERS);
@@ -1089,8 +1265,260 @@ void test_multiple_write_multiple_read() {
   // Check buffer is empty after initialization
   TEST_MRRB_IS_EMPTY(&mrrb);
 
-  // Create the reader threads
+  // Send some data
+  const unsigned char *pData = test_text;
+
+  // Write the data and check all sent data is written to the buffer
+  TEST_ASSERT_EQUAL_INT((int) overrun_1_data_lengths[0],
+                        mrrb_write(&mrrb, pData, overrun_1_data_lengths[0]));
+
+  // Increment data pointer
+  pData += overrun_1_data_lengths[0];
+
+  // At least one triggered reader: check that buffer is not empty after the write.
+  TEST_MRRB_FILL_LEVEL(&mrrb, overrun_1_data_lengths[0]);
+
+  // Check all readers
+  for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
+    TEST_ASSERT_EQUAL_INT(pData - test_text, reader_states[j].data_received);
+  }
+
+  // Without triggering the triggered readers, send more data to cause an overrun
+  // As some readers are blocking, the buffer can only be filled, but not all data written
+  TEST_ASSERT_EQUAL_INT((int) overrun_1_data_lengths[1],
+                        mrrb_write(&mrrb, pData, overrun_1_data_lengths[1] + 10));
+  TEST_MRRB_IS_FULL(&mrrb);
+
+  // Increment data pointer
+  pData += overrun_1_data_lengths[1];
+
+  // Check all readers
+  for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
+    switch (reader_states[j].read_type) {
+      case READER_STATE_IMMEDIATE:
+        TEST_ASSERT(readers[j].status == MRRB_READER_STATUS_IDLE);
+        TEST_ASSERT_EQUAL_INT(TEST_MRRB_BUFFER_LENGTH, reader_states[j].data_received);
+        break;
+      case READER_STATE_TRIGGERED:
+        TEST_ASSERT(readers[j].status == MRRB_READER_STATUS_ACTIVE);
+        TEST_ASSERT_EQUAL_INT(overrun_1_data_lengths[0], reader_states[j].data_received);
+        // Trigger the triggered readers once to complete the first write, but not the second
+        swsr_triggered_read_trigger(&mrrb, &reader_states[j]);
+        TEST_ASSERT(readers[j].status == MRRB_READER_STATUS_ACTIVE);
+        TEST_ASSERT_EQUAL_INT(TEST_MRRB_BUFFER_LENGTH, reader_states[j].data_received);
+        break;
+    }
+  }
+
+  TEST_MRRB_FILL_LEVEL(&mrrb, overrun_1_data_lengths[1]);
+
+  // Triggered readers still have the second write not completed yet.
+  // Disable blocking readers to test overrun
+  for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
+    switch (readers[j].overrun_policy) {
+      case MRRB_READER_OVERRUN_BLOCKING:
+        // Disable the reader
+        TEST_ASSERT_EQUAL_INT(0, mrrb_reader_disable(&mrrb, &readers[j]));
+        // Test the abort functions
+        if (readers[j].abort_data == abort_immediate || readers[j].abort_data == NULL) {
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+        } else if (readers[j].abort_data == abort_triggered) {
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLING, readers[j].status);
+          triggered_abort_trigger(&mrrb, &reader_states[j]);
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+        } else {
+          TEST_FAIL();
+        }
+        break;
+      case MRRB_READER_OVERRUN_SKIP:
+      case MRRB_READER_OVERRUN_DISABLE:
+        break;
+    }
+  }
+
+  // More data still remains in the MRRB
+  TEST_MRRB_FILL_LEVEL(&mrrb, overrun_1_data_lengths[1]);
+
+  // Without triggering the triggered readers, send more data to cause an overrun
+  // As some no enabled readers are blocking, all data should be written to the buffer
+  TEST_ASSERT_EQUAL_INT((int) overrun_1_data_lengths[2],
+                        mrrb_write(&mrrb, pData, overrun_1_data_lengths[2]));
+  TEST_MRRB_IS_FULL(&mrrb);
+  // Increment data pointer
+  pData += overrun_1_data_lengths[2];
+
+  // Check the readers
+  for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
+    switch (readers[j].overrun_policy) {
+      case MRRB_READER_OVERRUN_DISABLE:
+        switch (reader_states[j].read_type) {
+          case READER_STATE_IMMEDIATE:
+            TEST_ASSERT_EQUAL(MRRB_READER_STATUS_IDLE, readers[j].status);
+            break;
+          case READER_STATE_TRIGGERED:
+            // Test the abort functions
+            if (readers[j].abort_data == abort_immediate || readers[j].abort_data == NULL) {
+              TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+            } else if (readers[j].abort_data == abort_triggered) {
+              TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLING, readers[j].status);
+              triggered_abort_trigger(&mrrb, &reader_states[j]);
+              TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+            } else {
+              TEST_FAIL();
+            }
+            break;
+        }
+        break;
+      case MRRB_READER_OVERRUN_BLOCKING:
+        TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+        break;
+      case MRRB_READER_OVERRUN_SKIP:
+        // Test the abort functions
+        if (reader_states[j].read_type == READER_STATE_TRIGGERED)
+        {
+          if (readers[j].abort_data == abort_triggered) {
+            TEST_ASSERT_EQUAL(MRRB_READER_STATUS_ABORTING, readers[j].status);
+            triggered_abort_trigger(&mrrb, &reader_states[j]);
+          }
+        }
+        break;
+    }
+  }
+
+  // Now, the triggered readers should still occupy the buffer
+  TEST_MRRB_IS_FULL(&mrrb);
+
+  for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
+    switch (readers[j].overrun_policy) {
+      case MRRB_READER_OVERRUN_DISABLE:
+        if (reader_states[j].read_type == READER_STATE_IMMEDIATE) {
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_IDLE, readers[j].status);
+        } else {
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+        }
+        break;
+      case MRRB_READER_OVERRUN_BLOCKING:
+        TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+        break;
+      case MRRB_READER_OVERRUN_SKIP:
+        switch (reader_states[j].read_type) {
+          case READER_STATE_IMMEDIATE:
+            TEST_ASSERT_EQUAL(MRRB_READER_STATUS_IDLE, readers[j].status);
+          break;
+          case READER_STATE_TRIGGERED:
+            TEST_ASSERT_EQUAL(MRRB_READER_STATUS_ACTIVE, readers[j].status);
+            swsr_triggered_read_trigger(&mrrb, &reader_states[j]);
+            TEST_ASSERT_EQUAL(MRRB_READER_STATUS_IDLE, readers[j].status);
+          break;
+        }
+        break;
+    }
+  }
+  TEST_MRRB_IS_EMPTY(&mrrb);
+
+  // Write more data, two that fit
+  TEST_ASSERT_EQUAL_INT((int) overrun_1_data_lengths[3],
+                        mrrb_write(&mrrb, pData, overrun_1_data_lengths[3]));
+  pData += overrun_1_data_lengths[3];
+  TEST_ASSERT_EQUAL_INT((int) overrun_1_data_lengths[4],
+                        mrrb_write(&mrrb, pData, overrun_1_data_lengths[4]));
+  pData += overrun_1_data_lengths[4];
+  // Before sending the overrun data, manually advance readers that
+  //  - will SKIP on overrun AND
+  //  - have a triggered read (and thus have not read the second write) AND
+  //  - have an immediate abort (will thus skip the part of the second write that will be overwritten)
+  for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
+    if (readers[j].overrun_policy == MRRB_READER_OVERRUN_SKIP &&
+        reader_states[j].read_type == READER_STATE_TRIGGERED) {
+      // Advance by the amount of data that will be overrun
+      reader_states[j].data_received += overrun_1_data_lengths[4] +
+                                        overrun_1_data_lengths[5] -
+                                        mrrb.buffer_length;
+      reader_states[j].iteration += 2;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT((int) overrun_1_data_lengths[5],
+                        mrrb_write(&mrrb, pData, overrun_1_data_lengths[5]));
+  pData += overrun_1_data_lengths[5];
+
+  // Check the readers
+  for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
+    switch (readers[j].overrun_policy) {
+      case MRRB_READER_OVERRUN_DISABLE:
+        if (reader_states[j].read_type == READER_STATE_IMMEDIATE) {
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_IDLE, readers[j].status);
+        } else {
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+        }
+        break;
+      case MRRB_READER_OVERRUN_BLOCKING:
+        TEST_ASSERT_EQUAL(MRRB_READER_STATUS_DISABLED, readers[j].status);
+        break;
+      case MRRB_READER_OVERRUN_SKIP:
+        if (reader_states[j].read_type == READER_STATE_TRIGGERED) {
+          if (readers[j].abort_data == abort_triggered) {
+            TEST_ASSERT_EQUAL(MRRB_READER_STATUS_ABORTING, readers[j].status);
+            triggered_abort_trigger(&mrrb, &reader_states[j]);
+            TEST_ASSERT_EQUAL(MRRB_READER_STATUS_ACTIVE, readers[j].status);
+          }
+          // Two triggers because of the overflow
+          swsr_triggered_read_trigger(&mrrb, &reader_states[j]);
+          swsr_triggered_read_trigger(&mrrb, &reader_states[j]);
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_IDLE, readers[j].status);
+        } else {
+          TEST_ASSERT_EQUAL(MRRB_READER_STATUS_IDLE, readers[j].status);
+        }
+        break;
+    }
+  }
+  TEST_MRRB_IS_EMPTY(&mrrb);
+
+  // Check all enabled readers received all data
+  for (unsigned int j = 0; j < TEST_MRRB_MAX_READERS; j++) {
+    if (((readers[j].overrun_policy == MRRB_READER_OVERRUN_DISABLE) &&
+         (reader_states[j].read_type == READER_STATE_IMMEDIATE)) ||
+        (readers[j].overrun_policy == MRRB_READER_OVERRUN_SKIP)) {
+      TEST_ASSERT_EQUAL(SUM(overrun_1_data_lengths), reader_states[j].data_received);
+    }
+  }
+
+  // De-init MRRB and check for success
+  TEST_ASSERT_EQUAL_INT(0, mrrb_deinit(&mrrb));
   for (unsigned int i = 0; i < TEST_MRRB_MAX_READERS; i++) {
+    TEST_ASSERT_EQUAL_INT(0, mrrb_reader_deinit(&readers[i]));
+  }
+}
+
+void test_multiple_write_multiple_read() {
+  pthread_t reader_threads[TEST_MULTI_WRITE_READERS];
+  pthread_t writer_threads[TEST_MRRB_MAX_WRITERS];
+  multi_write_read_state_t reader_states[TEST_MULTI_WRITE_READERS] = { 0 };
+  multi_write_write_state_t writer_states[TEST_MRRB_MAX_WRITERS] = { 0 };
+  multi_write_shared_write_state_t writer_shared_state = { 0 };
+
+  // Check test settings
+  TEST_ASSERT_LESS_OR_EQUAL_UINT(TEST_MRRB_BUFFER_LENGTH, (sizeof(multi_write_header_t) + TEST_MULTI_WRITE_MAX_DATA_SIZE) * TEST_MRRB_MAX_WRITERS);
+  TEST_ASSERT_LESS_OR_EQUAL_UINT(TEST_MRRB_MAX_READERS, TEST_MULTI_WRITE_READERS);
+
+  // Create reader states
+  for (unsigned int i = 0; i < TEST_MULTI_WRITE_READERS; i++) {
+    reader_states[i].reader_number = i;
+    reader_states[i].seed = i + 54389277;
+    mrrb_reader_init(&readers[i],
+                     (void *) &reader_states[i],
+                     MRRB_READER_OVERRUN_BLOCKING,
+                     multi_write_reader_read,
+                     NULL);
+  }
+
+  // Initialize MRRB. Check for successful initialization.
+  int init_sts = mrrb_init(&mrrb, mrrb_buffer, TEST_MRRB_BUFFER_LENGTH, readers, TEST_MULTI_WRITE_READERS);
+  TEST_ASSERT_EQUAL_INT(0, init_sts);
+  // Check buffer is empty after initialization
+  TEST_MRRB_IS_EMPTY(&mrrb);
+
+  // Create the reader threads
+  for (unsigned int i = 0; i < TEST_MULTI_WRITE_READERS; i++) {
     TEST_ASSERT_EQUAL_INT(0, pthread_mutex_init(&reader_states[i].mutex, NULL));
     TEST_ASSERT_EQUAL_INT(0, pthread_cond_init(&reader_states[i].cond, NULL));
     TEST_ASSERT_EQUAL_INT(0, pthread_create(reader_threads + i, NULL, multi_write_reader_thread, &reader_states[i]));
@@ -1115,7 +1543,7 @@ void test_multiple_write_multiple_read() {
   }
 
   // Wait for the reader threads to end
-  for (unsigned int i = 0; i < TEST_MRRB_MAX_READERS; i++) {
+  for (unsigned int i = 0; i < TEST_MULTI_WRITE_READERS; i++) {
     TEST_ASSERT_EQUAL_INT(0, pthread_cond_signal(&reader_states[i].cond));
     TEST_ASSERT_EQUAL_INT(0, pthread_join(reader_threads[i], NULL));
     TEST_ASSERT_EQUAL_INT(0, pthread_mutex_destroy(&reader_states[i].mutex));
@@ -1127,6 +1555,9 @@ void test_multiple_write_multiple_read() {
 
   // De-init MRRB and check for success
   TEST_ASSERT_EQUAL_INT(0, mrrb_deinit(&mrrb));
+  for (unsigned int i = 0; i < TEST_MULTI_WRITE_READERS; i++) {
+    TEST_ASSERT_EQUAL_INT(0, mrrb_reader_deinit(&readers[i]));
+  }
 }
 
 void *timeout_thread_function(void *args) {

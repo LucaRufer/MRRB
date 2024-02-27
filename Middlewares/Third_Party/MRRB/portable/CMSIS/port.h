@@ -39,6 +39,7 @@ extern "C" {
 
 static inline void fence(void) {
   __DSB();
+  __ISB();
 }
 
 #if MRRB_USE_MUTEX

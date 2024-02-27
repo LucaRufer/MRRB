@@ -49,12 +49,17 @@ typedef struct {
   osThreadId_t udp_thread;
   osMessageQueueId_t queue;
   ring_buffer_reader_t *reader;
+  volatile uint8_t abort;
 } retarget_udp_state_t;
 
 typedef struct {
   const unsigned char *data;
   unsigned int data_length;
 } retarget_udp_message_t;
+
+typedef struct {
+  volatile uint8_t abort;
+} retarget_itm_state_t;
 
 /* Private function prototypes -----------------------------------------------*/
 
@@ -64,16 +69,23 @@ void _retarget_uart_data_notify(multi_reader_ring_buffer_t *mrrb,
                                 void *handle,
                                 const unsigned char *data,
                                 const unsigned int data_length);
+void _retarget_uart_data_abort(multi_reader_ring_buffer_t *mrrb,
+                               void *handle);
 
 void _retarget_itm_data_notify(multi_reader_ring_buffer_t *mrrb,
                                void *handle,
                                const unsigned char *data,
                                const unsigned int data_length);
+void _retarget_itm_data_abort(multi_reader_ring_buffer_t *mrrb,
+                              void *handle);
 
 void _retarget_udp_data_notify(multi_reader_ring_buffer_t *mrrb,
                                void *handle,
                                const unsigned char *data,
                                const unsigned int data_length);
+void _retarget_udp_data_abort(multi_reader_ring_buffer_t *mrrb,
+                              void *handle);
+
 
 #if USE_HAL_UART_REGISTER_CALLBACKS
 void _retarget_uart_TxCpltCallback(UART_HandleTypeDef *huart);
@@ -88,7 +100,7 @@ extern UART_HandleTypeDef MRRB_RETARGET_UART_HANDLE;
 
 // ITM Handle
 #if MRRB_RETARGET_ITM
-int ITM_handle;
+retarget_itm_state_t ITM_handle;
 #endif /* MRRB_RETARGET_ITM */
 
 // UDP Handle
@@ -131,6 +143,10 @@ int mrrb_retarget_init() {
 #endif /* USE_HAL_UART_REGISTER_CALLBACKS */
 #endif /* MRRB_RETARGET_UART */
 
+#if MRRB_RETARGET_ITM
+  ITM_handle.abort = 0;
+#endif /* MRRB_RETARGET_ITM */
+
 #if MRRB_RETARGET_UDP
   // Create Queue for UDP thread message passing
   udp_state.queue = osMessageQueueNew(1,
@@ -146,6 +162,7 @@ int mrrb_retarget_init() {
   if (udp_state.udp_thread == NULL) {
     return -1;
   }
+  udp_state.abort = 0;
 #endif /* MRRB_RETARGET_UDP */
 
   // Initialize Readers
@@ -153,14 +170,18 @@ int mrrb_retarget_init() {
 #if MRRB_RETARGET_UART
   if(mrrb_reader_init(current_reader++,
                       &MRRB_RETARGET_UART_HANDLE,
-                      _retarget_uart_data_notify)) {
+                      MRRB_READER_OVERRUN_SKIP,
+                      _retarget_uart_data_notify,
+                      _retarget_uart_data_abort)) {
     return -1;
   }
 #endif /* MRRB_RETARGET_UART */
 #if MRRB_RETARGET_ITM
   if(mrrb_reader_init(current_reader++,
                       &ITM_handle,
-                      _retarget_itm_data_notify)) {
+                      MRRB_READER_OVERRUN_SKIP,
+                      _retarget_itm_data_notify,
+                      _retarget_itm_data_abort)) {
     return -1;
   }
 #endif /* MRRB_RETARGET_ITM */
@@ -168,7 +189,9 @@ int mrrb_retarget_init() {
   udp_state.reader = &retarget_mrrb_readers[2];
   if(mrrb_reader_init(current_reader++,
                       &udp_state,
-                      _retarget_udp_data_notify)) {
+                      MRRB_READER_OVERRUN_SKIP,
+                      _retarget_udp_data_notify,
+                      _retarget_udp_data_abort)) {
     return -1;
   }
 #endif /* MRRB_RETARGET_UDP */
@@ -273,12 +296,17 @@ void _retarget_udp_thread(void *args) {
                             0,
                             (struct sockaddr *) &retarget_udp_remote,
                             sizeof(retarget_udp_remote));
-      if (sock_sts == (int) msg.data_length) {
-        // Notify read complete
-        mrrb_read_complete(&retarget_mrrb, state);
+      if (state->abort) {
+        state->abort = 0;
+        mrrb_abort_complete(&retarget_mrrb, state);
       } else {
-        // Sending data failed, disable the UDP reader
-        mrrb_reader_disable(&retarget_mrrb, state->reader);
+        if (sock_sts == (int) msg.data_length) {
+          // Notify read complete
+          mrrb_read_complete(&retarget_mrrb, state);
+        } else {
+          // Sending data failed, disable the UDP reader
+          mrrb_reader_disable(&retarget_mrrb, state->reader);
+        }
       }
     } else {
       // Getting the msg from the queue failed, disable the UDP reader
@@ -293,7 +321,12 @@ void _retarget_uart_data_notify(multi_reader_ring_buffer_t *mrrb,
                                 void *handle,
                                 const unsigned char *data,
                                 const unsigned int data_length) {
-  HAL_UART_Transmit_IT(handle, data, data_length);
+  HAL_UART_Transmit_IT((UART_HandleTypeDef *) handle, data, data_length);
+}
+void _retarget_uart_data_abort(multi_reader_ring_buffer_t *mrrb,
+                               void *handle) {
+  HAL_UART_AbortTransmit_IT((UART_HandleTypeDef *) handle);
+  mrrb_abort_complete(mrrb, handle);
 }
 #endif /* MRRB_RETARGET_UART */
 
@@ -303,12 +336,33 @@ void _retarget_itm_data_notify(multi_reader_ring_buffer_t *mrrb,
                                const unsigned char *data,
                                const unsigned int data_length) {
   // Send all data
+  retarget_itm_state_t *itm_handle = (retarget_itm_state_t *) handle;
   for(unsigned int i = 0; i < data_length; i++) {
-    uint32_t ch = (uint32_t) *(data++);
-    ITM_SendChar(ch);
+    // Get the character
+    uint8_t ch = (uint8_t) *(data++);
+    // Check if the ITM is enabled
+    if (((ITM->TCR & ITM_TCR_ITMENA_Msk) != 0UL) && ((ITM->TER & 1UL) != 0UL)){
+      // Loop until ITM port can be written
+      while (ITM->PORT[0U].u32 == 0UL) {
+        // Check for abort signal
+        if (itm_handle->abort) {
+          itm_handle->abort = 0;
+          mrrb_abort_complete(mrrb, handle);
+          return;
+        }
+      }
+      // Send the data
+      ITM->PORT[0U].u8 = (uint8_t)ch;
+    }
   }
   // Notify read complete
   mrrb_read_complete(mrrb, handle);
+}
+
+void _retarget_itm_data_abort(multi_reader_ring_buffer_t *mrrb,
+                              void *handle) {
+  retarget_itm_state_t *itm_handle = (retarget_itm_state_t *) handle;
+  itm_handle->abort = 1;
 }
 #endif /* MRRB_RETARGET_ITM */
 
@@ -332,6 +386,11 @@ void _retarget_udp_data_notify(multi_reader_ring_buffer_t *mrrb,
     // Putting a message in the Queue failed, disable the UDP reader
     mrrb_reader_disable(&retarget_mrrb, state->reader);
   }
+}
+void _retarget_udp_data_abort(multi_reader_ring_buffer_t *mrrb,
+                              void *handle) {
+  retarget_udp_state_t *state = (retarget_udp_state_t *) handle;
+  state->abort = 1;
 }
 #endif /* MRRB_RETARGET_UDP */
 

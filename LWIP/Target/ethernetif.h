@@ -27,7 +27,7 @@
 
 /* Within 'USER CODE' section, code will be kept by default at each generation */
 /* USER CODE BEGIN 0 */
-
+#include "lan8742.h"
 /* USER CODE END 0 */
 
 /* Exported functions ------------------------------------------------------- */
@@ -41,6 +41,10 @@ u32_t sys_jiffies(void);
 u32_t sys_now(void);
 
 /* USER CODE BEGIN 1 */
-
+int32_t LAN8742_TDR_Cable_Diagnostics(lan8742_Object_t *pObj,
+                                      uint32_t *TDR_tx_channel_type,
+                                      uint32_t *TDR_tx_channel_length,
+                                      uint32_t *TDR_rx_channel_type,
+                                      uint32_t *TDR_rx_channel_length);
 /* USER CODE END 1 */
 #endif

@@ -41,7 +41,7 @@
 #define TIME_WAITING_FOR_INPUT ( portMAX_DELAY )
 /* USER CODE BEGIN OS_THREAD_STACK_SIZE_WITH_RTOS */
 /* Stack size of the interface thread */
-#define INTERFACE_THREAD_STACK_SIZE ( 1024 )
+#define INTERFACE_THREAD_STACK_SIZE ( 2048 )
 /* USER CODE END OS_THREAD_STACK_SIZE_WITH_RTOS */
 /* Network interface name */
 #define IFNAME0 's'
@@ -910,6 +910,89 @@ void HAL_ETH_TxFreeCallback(uint32_t * buff)
 }
 
 /* USER CODE BEGIN 8 */
+int32_t LAN8742_TDR_Cable_Diagnostics(lan8742_Object_t *pObj,
+                                      uint32_t *TDR_tx_channel_type,
+                                      uint32_t *TDR_tx_channel_length,
+                                      uint32_t *TDR_rx_channel_type,
+                                      uint32_t *TDR_rx_channel_length)
+{
+  uint32_t readval = 0;
+  uint32_t bcr_value = 0;
+  uint32_t scsir_value = 0;
 
+  // Save the current BCR value
+  if(pObj->IO.ReadReg(pObj->DevAddr, LAN8742_BCR, &bcr_value) < 0) {
+    return LAN8742_STATUS_READ_ERROR;
+  }
+
+  // Disable ANEG and Force 100Mb Full-Duplex
+  if(pObj->IO.WriteReg(pObj->DevAddr, LAN8742_BCR, 0x2100) < 0) {
+    return LAN8742_STATUS_WRITE_ERROR;
+  }
+
+  // Save the current SCSIR value
+  if(pObj->IO.ReadReg(pObj->DevAddr, LAN8742_SCSIR, &scsir_value) < 0) {
+    return LAN8742_STATUS_READ_ERROR;
+  }
+
+  // Disable AMDIX and Force MDI
+  if(pObj->IO.WriteReg(pObj->DevAddr, LAN8742_SCSIR, 0x8000) < 0) {
+    return LAN8742_STATUS_WRITE_ERROR;
+  }
+
+  // Enable TDR
+  if(pObj->IO.WriteReg(pObj->DevAddr, LAN8742_TCSR, 0x8000) < 0) {
+    return LAN8742_STATUS_WRITE_ERROR;
+  }
+
+  // Wait for TDR Channel Status Complete
+  do {
+    // Check TDR Control/Status Register
+    if(pObj->IO.ReadReg(pObj->DevAddr, LAN8742_TCSR, &readval) < 0) {
+      return LAN8742_STATUS_READ_ERROR;
+    }
+  } while (!(readval & LAN8742_TCSR_TDR_CH_STATUS));
+
+  // Save TDR Channel Type and TDR Channel Length
+  *TDR_tx_channel_type = readval & LAN8742_TCSR_TDR_CH_CABLE_TYPE;
+  *TDR_tx_channel_length = readval & LAN8742_TCSR_TDR_CH_LENGTH;
+
+  // Force MDIX
+  if(pObj->IO.WriteReg(pObj->DevAddr, LAN8742_SCSIR, 0xA000) < 0) {
+    return LAN8742_STATUS_WRITE_ERROR;
+  }
+
+  // Enable TDR
+  if(pObj->IO.WriteReg(pObj->DevAddr, LAN8742_TCSR, 0x8000) < 0) {
+    return LAN8742_STATUS_WRITE_ERROR;
+  }
+
+  // Wait for TDR Channel Status Complete
+  do {
+    // Check TDR Control/Status Register
+    if(pObj->IO.ReadReg(pObj->DevAddr, LAN8742_TCSR, &readval) < 0) {
+      return LAN8742_STATUS_READ_ERROR;
+    }
+  } while (!(readval & LAN8742_TCSR_TDR_CH_STATUS));
+
+  // Save TDR Channel Type and TDR Channel Length
+  *TDR_rx_channel_type = readval & LAN8742_TCSR_TDR_CH_CABLE_TYPE;
+  *TDR_rx_channel_length = readval & LAN8742_TCSR_TDR_CH_LENGTH;
+
+  // Restore the SCSIR value
+  if(pObj->IO.WriteReg(pObj->DevAddr, LAN8742_SCSIR, scsir_value) < 0) {
+    return LAN8742_STATUS_WRITE_ERROR;
+  }
+
+  // Restore the BCR value
+  if (bcr_value & LAN8742_BCR_AUTONEGO_EN) {
+    bcr_value |= LAN8742_BCR_RESTART_AUTONEGO;
+  }
+  if(pObj->IO.WriteReg(pObj->DevAddr, LAN8742_BCR, bcr_value) < 0) {
+    return LAN8742_STATUS_WRITE_ERROR;
+  }
+
+  return LAN8742_STATUS_OK;
+}
 /* USER CODE END 8 */
 
